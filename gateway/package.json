@@ -1,0 +1,15 @@
+{
+  "name": "echo-server",
+  "version": "1.0.0",
+  "description": "The AI agent Echo's gateway server.",
+  "license": "ISC",
+  "author": "cdnwell",
+  "type": "module",
+  "main": "server.ts",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "dependencies": {
+    "fastify": "^5.7.2"
+  }
+}
