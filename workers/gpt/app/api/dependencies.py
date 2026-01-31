@@ -12,7 +12,7 @@ async def authenticate(
 
     # Check API key first (from gateway)
     if api_key:
-        if api_key == settings.API_KEY:
+        if api_key == settings.API_KEY or api_key == settings.OPENAI_API_KEY:
             return {"auth_type": "api_key", "source": "gateway"}
         raise HTTPException(status_code=403, detail="Invalid API key")
 

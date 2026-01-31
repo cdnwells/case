@@ -1,10 +1,9 @@
-import React, { useState } from 'react';
-import { StyleSheet, View, TextInput, TouchableOpacity, Platform } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { IconSymbol } from '@/components/ui/icon-symbol';
-import { useThemeColor } from '@/hooks/use-theme-color';
 import { useColorScheme } from '@/hooks/use-color-scheme';
+import { useThemeColor } from '@/hooks/use-theme-color';
 import * as Haptics from 'expo-haptics';
+import React, { useState } from 'react';
+import { Platform, StyleSheet, TextInput, TouchableOpacity, View } from 'react-native';
 
 interface ChatInputProps {
   onSend: (message: string) => void;
@@ -13,7 +12,7 @@ interface ChatInputProps {
 
 export function ChatInput({ onSend, disabled }: ChatInputProps) {
   const [text, setText] = useState('');
-  const insets = useSafeAreaInsets();
+  // const insets = useSafeAreaInsets();
   const colorScheme = useColorScheme();
 
   const backgroundColor = colorScheme === 'dark' ? '#2c2c2e' : '#f5f5f5';
@@ -34,28 +33,28 @@ export function ChatInput({ onSend, disabled }: ChatInputProps) {
   const canSend = text.trim().length > 0 && !disabled;
 
   return (
-    <View style={[styles.container, { paddingBottom: Math.max(insets.bottom, 8) }]}>
-      <View style={[styles.inputContainer, { backgroundColor }]}>
-        <TextInput
-          style={[styles.input, { color: textColor }]}
-          value={text}
-          onChangeText={setText}
-          placeholder="Type a message..."
-          placeholderTextColor={placeholderColor}
-          multiline
-          maxLength={4000}
-          editable={!disabled}
-          onSubmitEditing={handleSend}
-          blurOnSubmit={false}
-        />
-        <TouchableOpacity
-          style={[styles.sendButton, { backgroundColor: canSend ? tintColor : 'transparent' }]}
-          onPress={handleSend}
-          disabled={!canSend}>
-          <IconSymbol name="arrow.up" size={20} color={canSend ? '#fff' : placeholderColor} />
-        </TouchableOpacity>
+      <View style={[styles.container, { paddingBottom: 8 }]}>
+        <View style={[styles.inputContainer, { backgroundColor }]}>
+          <TextInput
+            style={[styles.input, { color: textColor }]}
+            value={text}
+            onChangeText={setText}
+            placeholder="Type a message..."
+            placeholderTextColor={placeholderColor}
+            multiline
+            maxLength={4000}
+            editable={!disabled}
+            onSubmitEditing={handleSend}
+            blurOnSubmit={false}
+          />
+          <TouchableOpacity
+            style={[styles.sendButton, { backgroundColor: canSend ? tintColor : 'transparent' }]}
+            onPress={handleSend}
+            disabled={!canSend}>
+            <IconSymbol name="arrow.up" size={20} color={canSend ? '#fff' : placeholderColor} />
+          </TouchableOpacity>
+        </View>
       </View>
-    </View>
   );
 }
 

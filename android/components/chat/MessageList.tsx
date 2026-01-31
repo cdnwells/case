@@ -44,7 +44,7 @@ export function MessageList({ messages, isLoading }: MessageListProps) {
       onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: true })}
       onLayout={() => flatListRef.current?.scrollToEnd({ animated: false })}
       ListEmptyComponent={renderEmpty}
-      ListFooterComponent={renderFooter}
+      // ListFooterComponent={renderFooter}
     />
   );
 }

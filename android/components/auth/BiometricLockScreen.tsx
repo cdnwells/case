@@ -1,9 +1,9 @@
-import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
-import { IconSymbol } from '@/components/ui/icon-symbol';
-import { useThemeColor } from '@/hooks/use-theme-color';
 import React from 'react';
 import { ActivityIndicator, StyleSheet, TouchableOpacity } from 'react-native';
+import { useThemeColor } from '../../hooks/use-theme-color';
+import { ThemedText } from '../themed-text';
+import { ThemedView } from '../themed-view';
+import { IconSymbol } from '../ui/icon-symbol';
 
 interface BiometricLockScreenProps {
   onAuthenticate: () => void;
@@ -26,7 +26,7 @@ export function BiometricLockScreen({
         채팅은 보안됩니다
       </ThemedText>
 
-      <ThemedText style={styles.subtitle}>Authenticate to continue</ThemedText>
+      <ThemedText style={styles.subtitle}>지문을 인증해주세요</ThemedText>
 
       {/* {error && <ThemedText style={styles.error}>{error}</ThemedText>} */}
 

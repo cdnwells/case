@@ -23,6 +23,7 @@
       },
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
+      "softwareKeyboardLayoutMode": "resize",
       "permissions": ["USE_BIOMETRIC", "USE_FINGERPRINT"]
     },
     "web": {
