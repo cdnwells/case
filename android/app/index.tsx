@@ -3,11 +3,12 @@ import { ChatScreen } from '@/components/chat';
 import { ThemedView } from '@/components/themed-view';
 import { useAuth } from '@/hooks/useAuth';
 import React, { useEffect } from 'react';
-import { StyleSheet } from 'react-native';
+import { Platform, StyleSheet } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 export default function App() {
   const { isAuthenticated, isLoading, error, authenticate } = useAuth();
+  const isWeb = Platform.OS === 'web';
 
   useEffect(() => {
     if (!isAuthenticated && !isLoading) {
@@ -15,7 +16,7 @@ export default function App() {
     }
   }, [isAuthenticated, isLoading, authenticate]);
 
-  if (!isAuthenticated) {
+  if (!isAuthenticated && !isWeb) {
     return (
       <BiometricLockScreen onAuthenticate={authenticate} isLoading={isLoading} error={error} />
     );

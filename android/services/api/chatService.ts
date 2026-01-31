@@ -9,8 +9,6 @@ export class ChatService implements IChatService {
   }
 
   async sendMessage(request: SendMessageRequest): Promise<SendMessageResponse> {
-    console.log(`base url: ${this.baseUrl}`);
-
     const response = await fetch(`${this.baseUrl}/chat`, {
       method: 'POST',
       headers: {
