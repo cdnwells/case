@@ -4,4 +4,4 @@ export interface IChatService {
   sendMessage(request: SendMessageRequest): Promise<SendMessageResponse>;
 }
 
-export const API_BASE_URL = 'https://api.gateway.example.com';
+export const API_BASE_URL = 'https://localhost:8000';
