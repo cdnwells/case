@@ -1,8 +1,8 @@
 import { ThemedText } from '@/components/themed-text';
-import { useThemeColor } from '@/hooks/use-theme-color';
 import { Message } from '@/types/chat';
 import React, { useRef } from 'react';
-import { ActivityIndicator, FlatList, StyleSheet, View } from 'react-native';
+import { FlatList, StyleSheet, View } from 'react-native';
+import { TypingIndicator } from '../ui/TypingIndicator';
 import { MessageBubble } from './MessageBubble';
 
 interface MessageListProps {
@@ -12,7 +12,7 @@ interface MessageListProps {
 
 export function MessageList({ messages, isLoading }: MessageListProps) {
   const flatListRef = useRef<FlatList>(null);
-  const tintColor = useThemeColor({}, 'tint');
+  // const tintColor = useThemeColor({}, 'tint');
 
   const renderItem = ({ item }: { item: Message }) => <MessageBubble message={item} />;
 
@@ -26,7 +26,7 @@ export function MessageList({ messages, isLoading }: MessageListProps) {
     if (!isLoading) return null;
     return (
       <View style={styles.loadingContainer}>
-        <ActivityIndicator size="small" color={tintColor} />
+        <TypingIndicator />
       </View>
     );
   };
@@ -44,7 +44,7 @@ export function MessageList({ messages, isLoading }: MessageListProps) {
       onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: true })}
       onLayout={() => flatListRef.current?.scrollToEnd({ animated: false })}
       ListEmptyComponent={renderEmpty}
-      // ListFooterComponent={renderFooter}
+      ListFooterComponent={renderFooter}
     />
   );
 }
@@ -52,7 +52,7 @@ export function MessageList({ messages, isLoading }: MessageListProps) {
 const styles = StyleSheet.create({
   contentContainer: {
     flexGrow: 1,
-    paddingVertical: 16,
+    paddingVertical: 8,
     justifyContent: 'flex-end',
   },
   emptyContentContainer: {
@@ -67,7 +67,7 @@ const styles = StyleSheet.create({
     fontSize: 16,
   },
   loadingContainer: {
-    paddingVertical: 16,
-    alignItems: 'center',
+    paddingVertical: 8,
+    alignItems: 'flex-start', // Align loading to the left like an incoming message
   },
 });

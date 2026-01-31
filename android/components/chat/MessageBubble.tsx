@@ -1,8 +1,9 @@
-import React from 'react';
-import { StyleSheet, View } from 'react-native';
 import { ThemedText } from '@/components/themed-text';
 import { useColorScheme } from '@/hooks/use-color-scheme';
+import { useThemeColor } from '@/hooks/use-theme-color';
 import { Message } from '@/types/chat';
+import React from 'react';
+import { StyleSheet, View } from 'react-native';
 
 interface MessageBubbleProps {
   message: Message;
@@ -11,12 +12,10 @@ interface MessageBubbleProps {
 export function MessageBubble({ message }: MessageBubbleProps) {
   const colorScheme = useColorScheme();
   const isUser = message.role === 'user';
+  const userBubbleColor = useThemeColor({}, 'userBubble');
+  // const assistantBubbleColor = useThemeColor({}, 'assistantBubble');
 
-  const backgroundColor = isUser
-    ? '#0a7ea4'
-    : colorScheme === 'dark'
-      ? '#3a3a3c'
-      : '#e5e5ea';
+  const backgroundColor = isUser ? userBubbleColor : 'transparent';
 
   const textColor = isUser ? '#fff' : colorScheme === 'dark' ? '#fff' : '#000';
 
@@ -24,9 +23,6 @@ export function MessageBubble({ message }: MessageBubbleProps) {
     <View style={[styles.container, isUser ? styles.userContainer : styles.assistantContainer]}>
       <View style={[styles.bubble, { backgroundColor }]}>
         <ThemedText style={[styles.text, { color: textColor }]}>{message.content}</ThemedText>
-        {message.status === 'sending' && (
-          <ThemedText style={[styles.status, { color: textColor }]}>Sending...</ThemedText>
-        )}
         {message.status === 'error' && (
           <ThemedText style={styles.errorStatus}>Failed to send</ThemedText>
         )}

@@ -17,7 +17,7 @@ export function ChatInput({ onSend, disabled }: ChatInputProps) {
 
   const backgroundColor = colorScheme === 'dark' ? '#2c2c2e' : '#f5f5f5';
   const textColor = useThemeColor({}, 'text');
-  const tintColor = useThemeColor({}, 'tint');
+  const caseColor = useThemeColor({}, 'symbolColor');
   const placeholderColor = colorScheme === 'dark' ? '#636366' : '#8e8e93';
 
   const handleSend = () => {
@@ -48,7 +48,7 @@ export function ChatInput({ onSend, disabled }: ChatInputProps) {
             blurOnSubmit={false}
           />
           <TouchableOpacity
-            style={[styles.sendButton, { backgroundColor: canSend ? tintColor : 'transparent' }]}
+            style={[styles.sendButton, { backgroundColor: canSend ? caseColor : 'transparent' }]}
             onPress={handleSend}
             disabled={!canSend}>
             <IconSymbol name="arrow.up" size={20} color={canSend ? '#fff' : placeholderColor} />
@@ -68,7 +68,7 @@ const styles = StyleSheet.create({
     alignItems: 'flex-end',
     borderRadius: 24,
     paddingLeft: 16,
-    paddingRight: 4,
+    paddingRight: 10,
     paddingVertical: 4,
     minHeight: 44,
   },
