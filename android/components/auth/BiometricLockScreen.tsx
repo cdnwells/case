@@ -28,8 +28,6 @@ export function BiometricLockScreen({
 
       <ThemedText style={styles.subtitle}>지문을 인증해주세요</ThemedText>
 
-      {/* {error && <ThemedText style={styles.error}>{error}</ThemedText>} */}
-
       <TouchableOpacity
         style={[styles.button, { borderColor: tintColor }]}
         onPress={onAuthenticate}

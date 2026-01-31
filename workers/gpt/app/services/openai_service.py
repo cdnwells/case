@@ -26,7 +26,8 @@ class OpenAIService:
             )
             return response.choices[0].message.content
         except Exception as e:
-            print(f"Error response: ${e.response.text}")
+            if hasattr(e, "response"):
+                print(f"Error response: {e.response.text}")
             raise OpenAIException(str(e), original_error=e)
 
     async def create_chat_response(

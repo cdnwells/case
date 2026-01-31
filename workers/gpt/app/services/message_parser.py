@@ -7,23 +7,25 @@ COMMAND_PATTERN = re.compile(
     r"```shell\s*(?:\{([^}]+)\})?\s*\n(.*?)\n```", re.DOTALL | re.MULTILINE
 )
 
-SYSTEM_PROMPT = """You are Case, an AI assistant that helps users with technical tasks.
+import os
 
-When providing shell commands, use the following format:
+def load_system_prompt():
+    """Load system prompt from markdown file"""
+    try:
+        # Get the directory of the current file (message_parser.py)
+        # Go up 2 levels to reach root (app/services -> app -> gpt)
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        root_dir = os.path.dirname(os.path.dirname(current_dir))
+        prompt_path = os.path.join(root_dir, "docs", "system_prompt.md")
+        
+        with open(prompt_path, "r", encoding="utf-8") as f:
+            return f.read().strip()
+    except Exception as e:
+        # Fallback if file read fails
+        print(f"Failed to load system prompt file: {e}")
+        return "You are Case, a helpful assistant."
 
-```shell {"action": "execute", "confirm": true, "description": "Brief description"}
-command here
-```
-
-Guidelines for commands:
-- Set "confirm": false only for safe, read-only commands (ls, cat, pwd, whoami)
-- Set "confirm": true for any command that modifies state (rm, mv, chmod, install)
-- Always include a description for complex commands
-- Break multi-step tasks into separate command blocks
-- Warn users about potentially dangerous operations
-
-You can provide multiple commands in sequence when appropriate.
-"""
+SYSTEM_PROMPT = load_system_prompt()
 
 
 def parse_message_content(content: str) -> MessageContent:

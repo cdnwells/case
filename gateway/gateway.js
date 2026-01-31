@@ -6,7 +6,7 @@ import crypto from 'crypto'
 const config = {
   port: parseInt(process.env.PORT || '5000', 10),
   pythonWorkerUrl: process.env.PYTHON_WORKER_URL || 'http://localhost:8000',
-  forwardTimeout: parseInt(process.env.FORWARD_TIMEOUT_MS || '5000', 10),
+  forwardTimeout: parseInt(process.env.FORWARD_TIMEOUT_MS || '60000', 10),
 }
 
 const gatewayApiKey = process.env.GATEWAY_API_KEY
