@@ -1,5 +1,5 @@
-import { IChatService, API_BASE_URL } from './types';
 import { SendMessageRequest, SendMessageResponse } from '@/types/chat';
+import { API_BASE_URL, IChatService } from './types';
 
 export class ChatService implements IChatService {
   private baseUrl: string;
@@ -9,6 +9,8 @@ export class ChatService implements IChatService {
   }
 
   async sendMessage(request: SendMessageRequest): Promise<SendMessageResponse> {
+    console.log(`base url: ${this.baseUrl}`);
+
     const response = await fetch(`${this.baseUrl}/chat`, {
       method: 'POST',
       headers: {
