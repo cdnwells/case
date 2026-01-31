@@ -2,8 +2,8 @@ import { ThemedText } from '@/components/themed-text';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { useThemeColor } from '@/hooks/use-theme-color';
 import { Message } from '@/types/chat';
-import React from 'react';
-import { StyleSheet, View } from 'react-native';
+import React, { useEffect, useRef } from 'react';
+import { Animated, StyleSheet, View } from 'react-native';
 
 interface MessageBubbleProps {
   message: Message;
@@ -13,21 +13,33 @@ export function MessageBubble({ message }: MessageBubbleProps) {
   const colorScheme = useColorScheme();
   const isUser = message.role === 'user';
   const userBubbleColor = useThemeColor({}, 'userBubble');
-  // const assistantBubbleColor = useThemeColor({}, 'assistantBubble');
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    Animated.timing(fadeAnim, {
+      toValue: 1,
+      duration: 300,
+      useNativeDriver: true,
+    }).start();
+  }, [fadeAnim]);
 
   const backgroundColor = isUser ? userBubbleColor : 'transparent';
 
   const textColor = isUser ? '#fff' : colorScheme === 'dark' ? '#fff' : '#000';
 
   return (
-    <View style={[styles.container, isUser ? styles.userContainer : styles.assistantContainer]}>
+    <Animated.View style={[
+      styles.container, 
+      isUser ? styles.userContainer : styles.assistantContainer,
+      { opacity: fadeAnim }
+    ]}>
       <View style={[styles.bubble, { backgroundColor }]}>
         <ThemedText style={[styles.text, { color: textColor }]}>{message.content}</ThemedText>
         {message.status === 'error' && (
           <ThemedText style={styles.errorStatus}>Failed to send</ThemedText>
         )}
       </View>
-    </View>
+    </Animated.View>
   );
 }
 
