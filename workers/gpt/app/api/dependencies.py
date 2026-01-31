@@ -14,6 +14,12 @@ async def authenticate(
     if api_key:
         if api_key == settings.API_KEY or api_key == settings.OPENAI_API_KEY:
             return {"auth_type": "api_key", "source": "gateway"}
+        
+        # Debug logging for troubleshooting
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.warning(f"API Key mismatch. Received: {api_key[:4]}*** Expected: {settings.API_KEY[:4]}***")
+        
         raise HTTPException(status_code=403, detail="Invalid API key")
 
     # Check OAuth token

@@ -4,9 +4,12 @@ from ...models.message import Message
 from ...services.openai_service import openai_service
 from ...services.message_parser import parse_message_content
 from ..dependencies import authenticate
+import logging
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
-
 
 @router.post("", response_model=SendMessageResponse)
 async def send_message(
@@ -19,6 +22,9 @@ async def send_message(
     Receives messages from the Android app via gateway,
     sends to GPT, and returns response with parsed shell commands.
     """
+
+    logger.info(request)
+
     # Get response from OpenAI
     response_content = await openai_service.create_chat_response(
         user_content=request.content,

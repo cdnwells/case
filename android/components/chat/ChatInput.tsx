@@ -39,7 +39,7 @@ export function ChatInput({ onSend, disabled }: ChatInputProps) {
             style={[styles.input, { color: textColor }]}
             value={text}
             onChangeText={setText}
-            placeholder="Case..."
+            placeholder="With Case"
             placeholderTextColor={placeholderColor}
             multiline
             maxLength={4000}

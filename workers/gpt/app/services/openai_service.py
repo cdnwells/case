@@ -23,11 +23,10 @@ class OpenAIService:
             response = await self.client.chat.completions.create(
                 model=model or self.default_model,
                 messages=[m.model_dump() for m in messages],
-                max_tokens=max_tokens,
-                temperature=temperature,
             )
             return response.choices[0].message.content
         except Exception as e:
+            print(f"Error response: ${e.response.text}")
             raise OpenAIException(str(e), original_error=e)
 
     async def create_chat_response(

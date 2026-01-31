@@ -7,7 +7,7 @@ COMMAND_PATTERN = re.compile(
     r"```shell\s*(?:\{([^}]+)\})?\s*\n(.*?)\n```", re.DOTALL | re.MULTILINE
 )
 
-SYSTEM_PROMPT = """You are Echo, an AI assistant that helps users with technical tasks.
+SYSTEM_PROMPT = """You are Case, an AI assistant that helps users with technical tasks.
 
 When providing shell commands, use the following format:
 

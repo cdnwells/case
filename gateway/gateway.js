@@ -1,3 +1,4 @@
+import 'dotenv/config'
 import Fastify from 'fastify'
 import crypto from 'crypto'
 
@@ -8,6 +9,8 @@ const config = {
   forwardTimeout: parseInt(process.env.FORWARD_TIMEOUT_MS || '5000', 10),
 }
 
+const gatewayApiKey = process.env.GATEWAY_API_KEY
+
 const fastify = Fastify({
   logger: { level: process.env.LOG_LEVEL || 'info' },
   genReqId: () => crypto.randomUUID(),
@@ -16,6 +19,8 @@ const fastify = Fastify({
 // Reverse proxy forwarding
 async function forwardToWorker({ method, path, headers, body }, logger) {
   const url = `${config.pythonWorkerUrl}${path}`
+
+  logger.info(`${url}`)
 
   const forwardHeaders = { ...headers }
   delete forwardHeaders['host']
@@ -26,6 +31,7 @@ async function forwardToWorker({ method, path, headers, body }, logger) {
 
   forwardHeaders['x-forwarded-by'] = 'echo-gateway'
   forwardHeaders['x-forwarded-host'] = headers.host || 'unknown'
+  forwardHeaders['X-API-key'] = gatewayApiKey
 
   const fetchOptions = {
     method,
