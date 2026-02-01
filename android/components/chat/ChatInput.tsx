@@ -33,28 +33,28 @@ export function ChatInput({ onSend, disabled }: ChatInputProps) {
   const canSend = text.trim().length > 0 && !disabled;
 
   return (
-      <View style={[styles.container, { paddingBottom: 8 }]}>
-        <View style={[styles.inputContainer, { backgroundColor }]}>
-          <TextInput
-            style={[styles.input, { color: textColor }]}
-            value={text}
-            onChangeText={setText}
-            placeholder="With Case"
-            placeholderTextColor={placeholderColor}
-            multiline
-            maxLength={4000}
-            editable={!disabled}
-            onSubmitEditing={handleSend}
-            blurOnSubmit={false}
-          />
-          <TouchableOpacity
-            style={[styles.sendButton, { backgroundColor: canSend ? caseColor : 'transparent' }]}
-            onPress={handleSend}
-            disabled={!canSend}>
-            <IconSymbol name="arrow.up" size={20} color={canSend ? '#fff' : placeholderColor} />
-          </TouchableOpacity>
-        </View>
+    <View style={[styles.container, { paddingBottom: 8 }]}>
+      <View style={[styles.inputContainer, { backgroundColor }]}>
+        <TextInput
+          style={[styles.input, { color: textColor }]}
+          value={text}
+          onChangeText={setText}
+          placeholder="With Case"
+          placeholderTextColor={placeholderColor}
+          multiline
+          maxLength={4000}
+          editable={!disabled}
+          onSubmitEditing={handleSend}
+          blurOnSubmit={false}
+        />
+        <TouchableOpacity
+          style={[styles.sendButton, { backgroundColor: canSend ? caseColor : 'transparent' }]}
+          onPress={handleSend}
+          disabled={!canSend}>
+          <IconSymbol name="arrow.up" size={20} color={canSend ? '#fff' : placeholderColor} />
+        </TouchableOpacity>
       </View>
+    </View>
   );
 }
 
@@ -68,7 +68,7 @@ const styles = StyleSheet.create({
     alignItems: 'flex-end',
     borderRadius: 24,
     paddingLeft: 16,
-    paddingRight: 10,
+    paddingRight: 9,
     paddingVertical: 4,
     minHeight: 44,
   },

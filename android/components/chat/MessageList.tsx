@@ -56,7 +56,6 @@ const styles = StyleSheet.create({
   },
   contentContainer: {
     flexGrow: 1,
-    paddingVertical: 8,
     justifyContent: 'flex-end',
   },
   emptyContentContainer: {
