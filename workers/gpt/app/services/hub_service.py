@@ -22,14 +22,12 @@ def format_commands_as_json(commands: List[ShellCommand]) -> List[dict]:
 
 async def send_commands_to_hub(
     commands: List[ShellCommand],
-    api_key: Optional[str] = None,
 ) -> bool:
     """
     Send conversational instructions to the hub for Claude Code execution.
 
     Args:
         commands: List of ShellCommand objects (containing conversational instructions)
-        api_key: API key for authentication (uses settings.API_KEY if not provided)
 
     Returns:
         True if successful, False otherwise
@@ -42,12 +40,9 @@ async def send_commands_to_hub(
         logger.debug("No commands to send")
         return True
 
-    auth_key = api_key or settings.API_KEY
     headers = {
         "Content-Type": "application/json",
     }
-    if auth_key:
-        headers["Authorization"] = f"Bearer {auth_key}"
 
     # Send each instruction separately for parallel execution
     try:
