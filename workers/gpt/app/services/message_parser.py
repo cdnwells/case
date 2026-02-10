@@ -1,58 +1,90 @@
 import re
 import json
+import logging
 from typing import List
 from ..models.message import ShellCommand, MessageContent
 
-EXECUTE_TAG_PATTERN = re.compile(
-    r"\[EXECUTE\]", re.IGNORECASE
-)
-
 import os
+
+logger = logging.getLogger(__name__)
+
+# Fallback pattern to extract JSON from markdown code blocks
+JSON_BLOCK_PATTERN = re.compile(r"```(?:json)?\s*(\{.*?\})\s*```", re.DOTALL)
+
 
 def load_system_prompt():
     """Load system prompt from markdown file"""
     try:
-        # Get the directory of the current file (message_parser.py)
-        # Go up 2 levels to reach root (app/services -> app -> gpt)
         current_dir = os.path.dirname(os.path.abspath(__file__))
         root_dir = os.path.dirname(os.path.dirname(current_dir))
         prompt_path = os.path.join(root_dir, "docs", "system_prompt.md")
-        
+
         with open(prompt_path, "r", encoding="utf-8") as f:
             return f.read().strip()
     except Exception as e:
-        # Fallback if file read fails
         print(f"Failed to load system prompt file: {e}")
         return "You are Case, a helpful assistant."
 
 SYSTEM_PROMPT = load_system_prompt()
 
 
+def _try_parse_json(content: str) -> dict | None:
+    """Try to parse JSON from GPT response, handling common formatting issues."""
+    # Try direct parse first
+    try:
+        return json.loads(content.strip())
+    except json.JSONDecodeError:
+        pass
+
+    # Try extracting from markdown code block
+    match = JSON_BLOCK_PATTERN.search(content)
+    if match:
+        try:
+            return json.loads(match.group(1))
+        except json.JSONDecodeError:
+            pass
+
+    return None
+
+
 def parse_message_content(content: str, user_request: str = None) -> MessageContent:
     """
-    Parse GPT response to detect if it's a computer task.
-    If [EXECUTE] tag is present, use the original user request as the command.
+    Parse GPT response as structured JSON.
+
+    Expected format:
+    {
+        "message": "conversational response",
+        "action": {
+            "type": "execute",
+            "instruction": "natural language task description"
+        }
+    }
     """
     commands: List[ShellCommand] = []
 
-    # Check if response contains [EXECUTE] tag
-    has_execute_tag = EXECUTE_TAG_PATTERN.search(content)
+    parsed = _try_parse_json(content)
 
-    if has_execute_tag and user_request:
-        # Use the original user request as the conversational instruction
-        commands.append(
-            ShellCommand(
-                command=user_request,  # User's original request
-                description="Computer task",
-                requires_confirmation=False,
-                timeout_seconds=120,
-            )
-        )
+    if parsed and isinstance(parsed, dict):
+        display_text = parsed.get("message", content)
 
-    # Remove [EXECUTE] tag from response text
-    clean_text = EXECUTE_TAG_PATTERN.sub("", content).strip()
+        action = parsed.get("action")
+        if action and isinstance(action, dict) and action.get("type") == "execute":
+            instruction = action.get("instruction", "")
+            if instruction:
+                commands.append(
+                    ShellCommand(
+                        command=instruction,
+                        description="Computer task",
+                        requires_confirmation=False,
+                        timeout_seconds=120,
+                    )
+                )
+    else:
+        # Fallback: treat raw text as message with no action
+        logger.warning("GPT response was not valid JSON, using raw text as message")
+        display_text = content.strip()
 
     return MessageContent(
-        text=clean_text,
+        text=display_text,
         commands=commands if commands else None,
     )

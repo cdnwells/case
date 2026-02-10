@@ -112,11 +112,13 @@ fastify.get('/health', async () => ({
 // Command execution endpoint (fire-and-forget)
 fastify.post('/command', async (request, reply) => {
   const { body, headers } = request
-  request.log.info({ body }, 'Command received')
+  const source = body?.source || 'unknown'
+  request.log.info({ source, body }, 'Command received')
 
   // Return immediately with 202 Accepted
   reply.code(202).send({
     status: 'working',
+    source,
     message: 'Commands queued for execution'
   })
 

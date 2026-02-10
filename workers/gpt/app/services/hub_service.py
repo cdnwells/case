@@ -8,12 +8,16 @@ from ..config import settings
 
 logger = logging.getLogger(__name__)
 
+# Source identifier for hub to recognize GPT worker requests
+GPT_WORKER_SOURCE = "case-gpt"
+
 
 def format_commands_as_json(commands: List[ShellCommand]) -> List[dict]:
     """Format conversational instructions as JSON for Claude Code"""
     return [
         {
-            "command": cmd.command,  # Conversational instruction
+            "source": GPT_WORKER_SOURCE,
+            "command": cmd.command,
             "timeout": cmd.timeout_seconds,
         }
         for cmd in commands
@@ -25,6 +29,9 @@ async def send_commands_to_hub(
 ) -> bool:
     """
     Send conversational instructions to the hub for Claude Code execution.
+
+    Each command payload includes a `source` field ("case-gpt") so the hub
+    can identify which worker originated the request.
 
     Args:
         commands: List of ShellCommand objects (containing conversational instructions)
@@ -44,20 +51,22 @@ async def send_commands_to_hub(
         "Content-Type": "application/json",
     }
 
-    # Send each instruction separately for parallel execution
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:
-            # Send all commands in parallel
             tasks = []
             for cmd in commands:
+                payload = {
+                    "source": GPT_WORKER_SOURCE,
+                    "command": cmd.command,
+                    "timeout": cmd.timeout_seconds,
+                }
                 task = client.post(
                     settings.HUB_COMMAND_URL,
-                    json={"command": cmd.command, "timeout": cmd.timeout_seconds},
+                    json=payload,
                     headers=headers,
                 )
                 tasks.append(task)
 
-            # Wait for all to complete
             responses = await asyncio.gather(*tasks, return_exceptions=True)
 
             success_count = 0
