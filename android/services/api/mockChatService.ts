@@ -1,5 +1,5 @@
 import { IChatService } from './types';
-import { Message, SendMessageRequest, SendMessageResponse } from '@/types/chat';
+import { Message, SendMessageRequest, SendMessageResponse, CommandResultResponse } from '@/types/chat';
 
 export class MockChatService implements IChatService {
   private delay = 1000;
@@ -16,6 +16,21 @@ export class MockChatService implements IChatService {
     };
 
     return { message: responseMessage };
+  }
+
+  async pollCommandResult(executionId: string): Promise<CommandResultResponse> {
+    await new Promise(resolve => setTimeout(resolve, this.delay));
+    return {
+      status: 'completed',
+      executionId,
+      result: {
+        success: true,
+        stdout: 'Mock command output',
+        stderr: '',
+        exit_code: 0,
+        execution_time: 1.5,
+      },
+    };
   }
 }
 

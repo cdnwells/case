@@ -1,7 +1,13 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from typing import Literal, Optional, List
 from datetime import datetime
 from uuid import uuid4
+
+
+def to_camel(string: str) -> str:
+    """Convert snake_case to camelCase for JSON serialization."""
+    components = string.split("_")
+    return components[0] + "".join(x.title() for x in components[1:])
 
 
 class ShellCommand(BaseModel):
@@ -32,6 +38,8 @@ class MessageContent(BaseModel):
 class Message(BaseModel):
     """Message matching Android app's expected format"""
 
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
     id: str = Field(default_factory=lambda: f"msg_{uuid4().hex[:12]}")
     content: str = Field(..., description="Message content (may contain command blocks)")
     role: Literal["user", "assistant"] = Field(..., description="Message role")
@@ -45,6 +53,9 @@ class Message(BaseModel):
     )
     has_commands: Optional[bool] = Field(
         None, description="Whether message contains commands"
+    )
+    execution_id: Optional[str] = Field(
+        None, description="Unique ID for polling command execution result"
     )
 
 

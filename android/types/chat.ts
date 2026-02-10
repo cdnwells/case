@@ -6,6 +6,7 @@ export interface Message {
   status: 'sending' | 'sent' | 'error';
   executionStatus?: 'queued' | 'executing' | 'completed' | 'failed';
   hasCommands?: boolean;
+  executionId?: string;
 }
 
 export interface ChatState {
@@ -21,4 +22,16 @@ export interface SendMessageRequest {
 
 export interface SendMessageResponse {
   message: Message;
+}
+
+export interface CommandResultResponse {
+  status: 'executing' | 'completed' | 'failed' | 'not_found';
+  executionId: string;
+  result?: {
+    success: boolean;
+    stdout: string;
+    stderr: string;
+    exit_code: number;
+    execution_time: number;
+  };
 }

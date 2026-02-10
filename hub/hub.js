@@ -17,6 +17,20 @@ const fastify = Fastify({
   genReqId: () => crypto.randomUUID(),
 })
 
+// In-memory command result store
+const RESULT_TTL_MS = 10 * 60 * 1000 // 10 minutes
+const commandResults = new Map()
+
+// Cleanup expired results every 60 seconds
+setInterval(() => {
+  const now = Date.now()
+  for (const [id, entry] of commandResults) {
+    if (now - entry.createdAt > RESULT_TTL_MS) {
+      commandResults.delete(id)
+    }
+  }
+}, 60_000)
+
 // Worker selection based on request path
 function selectWorkerUrl(path) {
   if (path.startsWith('/command')) {
@@ -25,8 +39,9 @@ function selectWorkerUrl(path) {
   return config.pythonWorkerUrl
 }
 
-// Fire-and-forget async command execution
+// Async command execution with result storage
 function executeCommandAsync(url, body, headers, logger) {
+  const executionId = body?.executionId
   const forwardHeaders = { ...headers }
   delete forwardHeaders['host']
   delete forwardHeaders['connection']
@@ -47,11 +62,28 @@ function executeCommandAsync(url, body, headers, logger) {
     forwardHeaders['content-type'] = 'application/json'
   }
 
-  // Fire and forget - don't await
   fetch(url, fetchOptions)
     .then(res => res.json())
-    .then(result => logger.info({ result }, 'Command executed'))
-    .catch(err => logger.error({ err }, 'Command execution failed'))
+    .then(result => {
+      logger.info({ executionId, result }, 'Command executed')
+      if (executionId) {
+        commandResults.set(executionId, {
+          status: result.success ? 'completed' : 'failed',
+          result,
+          createdAt: Date.now(),
+        })
+      }
+    })
+    .catch(err => {
+      logger.error({ executionId, err }, 'Command execution failed')
+      if (executionId) {
+        commandResults.set(executionId, {
+          status: 'failed',
+          result: { success: false, stdout: '', stderr: err.message, exit_code: -1, execution_time: 0 },
+          createdAt: Date.now(),
+        })
+      }
+    })
 }
 
 // Reverse proxy forwarding
@@ -109,16 +141,44 @@ fastify.get('/health', async () => ({
   timestamp: new Date().toISOString()
 }))
 
+// Poll command result by executionId
+fastify.get('/command/result/:executionId', async (request, reply) => {
+  const { executionId } = request.params
+  const entry = commandResults.get(executionId)
+
+  if (!entry) {
+    reply.code(404)
+    return { status: 'not_found', executionId }
+  }
+
+  return {
+    status: entry.status,
+    executionId,
+    result: entry.result,
+  }
+})
+
 // Command execution endpoint (fire-and-forget)
 fastify.post('/command', async (request, reply) => {
   const { body, headers } = request
   const source = body?.source || 'unknown'
-  request.log.info({ source, body }, 'Command received')
+  const executionId = body?.executionId
+  request.log.info({ source, executionId, body }, 'Command received')
+
+  // Track execution in result store
+  if (executionId) {
+    commandResults.set(executionId, {
+      status: 'executing',
+      result: null,
+      createdAt: Date.now(),
+    })
+  }
 
   // Return immediately with 202 Accepted
   reply.code(202).send({
     status: 'working',
     source,
+    executionId,
     message: 'Commands queued for execution'
   })
 

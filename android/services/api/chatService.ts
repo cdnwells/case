@@ -1,4 +1,4 @@
-import { SendMessageRequest, SendMessageResponse } from '@/types/chat';
+import { SendMessageRequest, SendMessageResponse, CommandResultResponse } from '@/types/chat';
 import { API_BASE_URL, IChatService } from './types';
 
 export class ChatService implements IChatService {
@@ -18,6 +18,19 @@ export class ChatService implements IChatService {
     });
 
     if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+
+    return response.json();
+  }
+
+  async pollCommandResult(executionId: string): Promise<CommandResultResponse> {
+    const response = await fetch(`${this.baseUrl}/command/result/${executionId}`);
+
+    if (!response.ok) {
+      if (response.status === 404) {
+        return { status: 'not_found', executionId };
+      }
       throw new Error(`HTTP error! status: ${response.status}`);
     }
 

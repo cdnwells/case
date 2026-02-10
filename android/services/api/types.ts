@@ -1,8 +1,9 @@
-import { SendMessageRequest, SendMessageResponse } from "@/types/chat";
+import { SendMessageRequest, SendMessageResponse, CommandResultResponse } from "@/types/chat";
 import { Platform } from "react-native";
 
 export interface IChatService {
   sendMessage(request: SendMessageRequest): Promise<SendMessageResponse>;
+  pollCommandResult(executionId: string): Promise<CommandResultResponse>;
 }
 
 export const API_BASE_URL =

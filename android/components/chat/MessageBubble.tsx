@@ -46,6 +46,12 @@ export function MessageBubble({ message }: MessageBubbleProps) {
                 <ThemedText style={[styles.commandText, { color: textColor }]}>명령 대기 중...</ThemedText>
               </>
             )}
+            {message.executionStatus === 'executing' && (
+              <>
+                <ActivityIndicator size="small" color={textColor} />
+                <ThemedText style={[styles.commandText, { color: textColor }]}>명령 실행 중...</ThemedText>
+              </>
+            )}
             {message.executionStatus === 'completed' && (
               <ThemedText style={[styles.commandText, { color: textColor }]}>✓ 명령 실행 완료</ThemedText>
             )}

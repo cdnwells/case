@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-@router.post("", response_model=SendMessageResponse)
+@router.post("", response_model=SendMessageResponse, response_model_by_alias=True)
 async def send_message(
     request: SendMessageRequest,
 ):
@@ -31,14 +31,15 @@ async def send_message(
         conversation_history=None,  # TODO: Add conversation history support
     )
 
-    # Parse response and pass user request for [EXECUTE] detection
+    # Parse response and pass user request for action detection
     parsed_content = parse_message_content(response_content, user_request=request.content)
 
     # Send commands to hub if any were extracted
     commands_sent = False
+    execution_id = None
     if parsed_content.commands:
-        commands_sent = await send_commands_to_hub(parsed_content.commands)
-        logger.info(f"Commands sent to hub: {commands_sent}")
+        commands_sent, execution_id = await send_commands_to_hub(parsed_content.commands)
+        logger.info(f"Commands sent to hub: {commands_sent}, executionId: {execution_id}")
 
     # Determine execution status
     execution_status = None
@@ -56,6 +57,7 @@ async def send_message(
         parsed_content=parsed_content,
         execution_status=execution_status,
         has_commands=has_commands,
+        execution_id=execution_id,
     )
 
     return SendMessageResponse(message=message)
