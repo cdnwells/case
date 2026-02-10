@@ -1,17 +1,13 @@
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Request
 from ...models.command import CommandRequest, CommandResponse
 from ...services.ssh_service import ssh_service
 from ...core.security import validate_command
-from ..dependencies import authenticate
 
 router = APIRouter()
 
 
 @router.post("/command", response_model=CommandResponse)
-async def execute_command(
-    request: Request,
-    auth: dict = Depends(authenticate),
-):
+async def execute_command(request: Request):
     """Execute a shell command on the remote server via SSH"""
     content_type = request.headers.get("content-type", "")
     

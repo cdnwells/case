@@ -1,10 +1,9 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter
 from ...models.chat import SendMessageRequest, SendMessageResponse
 from ...models.message import Message
 from ...services.openai_service import openai_service
 from ...services.message_parser import parse_message_content
 from ...services.hub_service import send_commands_to_hub
-from ..dependencies import authenticate
 import logging
 
 logging.basicConfig(level=logging.INFO)
@@ -15,7 +14,6 @@ router = APIRouter()
 @router.post("", response_model=SendMessageResponse)
 async def send_message(
     request: SendMessageRequest,
-    auth: dict = Depends(authenticate),
 ):
     """
     Process a chat message through OpenAI GPT.

@@ -3,13 +3,12 @@ import logging
 import uuid
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Request
 from sse_starlette.sse import EventSourceResponse
 
 from ...models.chat import ChatRequest, ChatResponse
 from ...services.message_parser import parse_message_content
 from ...services.ollama_service import ollama_service
-from ..dependencies import authenticate
 
 logger = logging.getLogger(__name__)
 
@@ -20,7 +19,6 @@ router = APIRouter()
 async def send_message(
     request: Request,
     chat_request: ChatRequest,
-    auth: dict = Depends(authenticate),
 ):
     """
     Send a message to the Ollama model.

@@ -15,9 +15,6 @@ class Settings(BaseSettings):
     SSH_KEY_PATH: str = ""
     SSH_KEY_PASSPHRASE: Optional[str] = None
 
-    # Authentication
-    API_KEY: str = ""
-
     # Security
     ALLOWED_ORIGINS: str = "*"
 

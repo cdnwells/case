@@ -14,13 +14,6 @@ class Settings(BaseSettings):
     OPENAI_MAX_TOKENS: int = 4096
     OPENAI_TEMPERATURE: float = 0.7
 
-    # Authentication
-    API_KEY: str = ""
-    OAUTH_ISSUER_URL: Optional[str] = None
-    OAUTH_INTROSPECTION_URL: Optional[str] = None
-    OAUTH_CLIENT_ID: Optional[str] = None
-    OAUTH_CLIENT_SECRET: Optional[str] = None
-
     # Security
     ALLOWED_ORIGINS: str = "*"
     RATE_LIMIT_REQUESTS: int = 100

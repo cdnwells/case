@@ -14,9 +14,6 @@ class Settings(BaseSettings):
     OLLAMA_MODEL: str = "gpt-oss-20b"
     OLLAMA_TIMEOUT: int = 120
 
-    # Authentication
-    API_KEY: str
-
     # Security
     ALLOWED_ORIGINS: str = "*"
 
