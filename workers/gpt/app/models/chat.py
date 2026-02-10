@@ -4,7 +4,7 @@ from .message import Message, ChatMessage
 
 
 class SendMessageRequest(BaseModel):
-    """Request from Android app via gateway"""
+    """Request from Android app via hub"""
 
     content: str = Field(..., min_length=1, max_length=10000)
     conversationId: Optional[str] = Field(

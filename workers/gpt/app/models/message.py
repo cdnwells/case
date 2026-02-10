@@ -40,6 +40,12 @@ class Message(BaseModel):
     parsed_content: Optional[MessageContent] = Field(
         None, description="Structured content with extracted commands"
     )
+    execution_status: Optional[Literal["queued", "executing", "completed", "failed"]] = Field(
+        None, description="Command execution status"
+    )
+    has_commands: Optional[bool] = Field(
+        None, description="Whether message contains commands"
+    )
 
 
 class ChatMessage(BaseModel):

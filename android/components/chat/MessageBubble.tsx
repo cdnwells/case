@@ -3,7 +3,7 @@ import { useColorScheme } from '@/hooks/use-color-scheme';
 import { useThemeColor } from '@/hooks/use-theme-color';
 import { Message } from '@/types/chat';
 import React, { useEffect, useRef } from 'react';
-import { Animated, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, Animated, StyleSheet, View } from 'react-native';
 
 interface MessageBubbleProps {
   message: Message;
@@ -37,6 +37,22 @@ export function MessageBubble({ message }: MessageBubbleProps) {
         <ThemedText style={[styles.text, { color: textColor }]}>{message.content}</ThemedText>
         {message.status === 'error' && (
           <ThemedText style={styles.errorStatus}>Failed to send</ThemedText>
+        )}
+        {message.hasCommands && (
+          <View style={styles.commandIndicator}>
+            {message.executionStatus === 'queued' && (
+              <>
+                <ActivityIndicator size="small" color={textColor} />
+                <ThemedText style={[styles.commandText, { color: textColor }]}>명령 대기 중...</ThemedText>
+              </>
+            )}
+            {message.executionStatus === 'completed' && (
+              <ThemedText style={[styles.commandText, { color: textColor }]}>✓ 명령 실행 완료</ThemedText>
+            )}
+            {message.executionStatus === 'failed' && (
+              <ThemedText style={[styles.commandText, { color: '#ff4444' }]}>✗ 명령 실행 실패</ThemedText>
+            )}
+          </View>
         )}
       </View>
     </Animated.View>
@@ -72,5 +88,15 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: '#ff4444',
     marginTop: 4,
+  },
+  commandIndicator: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 8,
+    gap: 6,
+  },
+  commandText: {
+    fontSize: 12,
+    opacity: 0.8,
   },
 });

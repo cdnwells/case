@@ -4,6 +4,8 @@ export interface Message {
   role: 'user' | 'assistant';
   timestamp: Date;
   status: 'sending' | 'sent' | 'error';
+  executionStatus?: 'queued' | 'executing' | 'completed' | 'failed';
+  hasCommands?: boolean;
 }
 
 export interface ChatState {

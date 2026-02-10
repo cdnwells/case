@@ -4,7 +4,7 @@ from typing import List
 from ..models.message import ShellCommand, MessageContent
 
 COMMAND_PATTERN = re.compile(
-    r"```shell\s*(?:\{([^}]+)\})?\s*\n(.*?)\n```", re.DOTALL | re.MULTILINE
+    r"```json\s*(.*?)\s*```", re.DOTALL | re.MULTILINE
 )
 
 import os
@@ -40,24 +40,21 @@ def parse_message_content(content: str) -> MessageContent:
         last_end = match.end()
 
         # Parse command metadata
-        metadata_str = match.group(1)
-        command_str = match.group(2).strip()
-
-        metadata = {}
-        if metadata_str:
-            try:
-                metadata = json.loads("{" + metadata_str + "}")
-            except json.JSONDecodeError:
-                pass
-
-        commands.append(
-            ShellCommand(
-                command=command_str,
-                description=metadata.get("description"),
-                requires_confirmation=metadata.get("confirm", True),
-                timeout_seconds=metadata.get("timeout", 30),
-            )
-        )
+        json_str = match.group(1)
+        
+        try:
+            data = json.loads(json_str)
+            if data.get("action") == "execute" and "command" in data:
+                commands.append(
+                    ShellCommand(
+                        command=data["command"],
+                        description=data.get("description"),
+                        requires_confirmation=data.get("confirm", True),
+                        timeout_seconds=data.get("timeout", 30),
+                    )
+                )
+        except json.JSONDecodeError:
+            pass
 
     # Add remaining text
     text_parts.append(content[last_end:])

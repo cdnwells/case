@@ -10,10 +10,10 @@ async def authenticate(
 ) -> dict:
     """Accept either API key or OAuth token"""
 
-    # Check API key first (from gateway)
+    # Check API key first (from hub)
     if api_key:
         if api_key == settings.API_KEY or api_key == settings.OPENAI_API_KEY:
-            return {"auth_type": "api_key", "source": "gateway"}
+            return {"auth_type": "api_key", "source": "hub"}
         
         # Debug logging for troubleshooting
         import logging

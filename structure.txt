@@ -1,0 +1,470 @@
+# Case Project Structure Analysis
+
+## Overview
+Case is an AI-powered mobile assistant system inspired by the CASE robot from Interstellar. The system consists of a React Native mobile app, a Node.js hub server, and multiple Python worker services for different AI/automation tasks.
+
+## Architecture
+
+```
+┌─────────────────┐
+│  Android App    │ (React Native + Expo)
+│  (Port: Client) │
+└────────┬────────┘
+         │ HTTP
+         ▼
+┌─────────────────┐
+│  Hub        │ (Node.js + Fastify)
+│  (Port: 5000)   │ Reverse Proxy + API Key Management
+└────────┬────────┘
+         │ Forwards requests
+         ▼
+┌─────────────────────────────────────────────┐
+│          Python Workers (FastAPI)            │
+├─────────────────┬───────────────┬───────────┤
+│  GPT Worker     │  SSH Worker   │  Ollama   │
+│  (Port: 8000)   │  (Port: ???)  │  Worker   │
+│  Chat + OpenAI  │  Shell Exec   │  (Local)  │
+└─────────────────┴───────────────┴───────────┘
+```
+
+## Directory Structure
+
+### Root Level
+```
+case/
+├── android/          # React Native mobile app (426MB)
+├── hub/          # Node.js reverse proxy (14MB)
+├── workers/          # Python FastAPI workers (73MB)
+│   ├── gpt/         # OpenAI GPT integration
+│   ├── ssh/         # Shell command execution
+│   ├── ollama/      # Local LLM integration
+│   └── specs/       # Worker specifications
+├── .gitignore
+└── README.md
+```
+
+---
+
+## 1. Android App (`/android/`)
+
+### Tech Stack
+- **Framework**: React Native 0.81.5 + Expo 54
+- **Navigation**: Expo Router 6.0
+- **UI**: React Native with custom components
+- **Language**: TypeScript
+- **State Management**: React hooks
+- **Authentication**: expo-local-authentication (biometric)
+
+### Key Components
+```
+android/
+├── app/
+│   ├── index.tsx              # Main entry point
+│   └── _layout.tsx            # Root layout with theme provider
+├── components/
+│   ├── auth/                  # Authentication components
+│   ├── chat/
+│   │   └── ChatInput.tsx      # Message input with send button
+│   └── ui/                    # Reusable UI components
+├── services/
+│   └── api/
+│       └── types.ts           # API service interfaces
+├── assets/
+│   └── images/
+├── constants/                 # App constants
+├── hooks/                     # Custom React hooks
+└── specs/
+    └── 001-biometric-chat-app/
+```
+
+### Features
+- Biometric authentication
+- Chat interface with GPT integration
+- Dark mode support
+- Haptic feedback
+- Platform-specific handling (Android/iOS/Web)
+- Safe area handling for modern devices
+
+### Configuration
+- **API Endpoint**:
+  - Android: `http://192.168.0.21:5000`
+  - Other: `http://localhost:5000`
+- **Max Message Length**: 4000 characters
+
+---
+
+## 2. Hub (`/hub/`)
+
+### Tech Stack
+- **Framework**: Fastify (Node.js)
+- **Language**: JavaScript (ES Modules)
+- **Purpose**: Reverse proxy + API key management
+
+### Architecture
+**File**: `hub.js` (120 lines)
+
+The hub acts as a single entry point for the Android app:
+1. Receives requests from mobile app
+2. Adds authentication headers (X-API-key)
+3. Forwards to appropriate Python worker
+4. Handles timeouts and error responses
+
+### Configuration
+```javascript
+PORT: 5000 (default)
+PYTHON_WORKER_URL: http://localhost:8000
+FORWARD_TIMEOUT_MS: 120000 (2 minutes)
+HUB_API_KEY: (from .env)
+LOG_LEVEL: info
+```
+
+### Endpoints
+- **GET /health**: Health check (not forwarded)
+- **ALL /***: Catch-all reverse proxy to Python workers
+
+### Security Features
+- API key injection to worker requests
+- Header sanitization (removes host, connection, keep-alive)
+- Timeout protection (504 Hub Timeout)
+- Error handling (502 Bad Hub)
+
+---
+
+## 3. Workers (`/workers/`)
+
+### 3.1 GPT Worker (`/workers/gpt/`)
+
+**Purpose**: OpenAI GPT integration with shell command extraction
+
+#### Tech Stack
+- **Framework**: FastAPI (Python)
+- **AI**: OpenAI GPT-4o
+- **Config**: Pydantic Settings
+
+#### Structure
+```
+workers/gpt/
+├── app/
+│   ├── api/
+│   │   ├── dependencies.py      # Auth middleware
+│   │   └── routes/
+│   │       └── chat.py          # Chat endpoint
+│   ├── auth/                    # OAuth/API key auth
+│   ├── core/                    # Core utilities
+│   ├── models/                  # Pydantic models
+│   ├── services/
+│   │   ├── openai_service.py
+│   │   ├── message_parser.py    # Shell command extraction
+│   │   └── hub_service.py   # Send commands to hub
+│   └── config.py                # Settings
+├── docs/
+│   └── system_prompt.md         # Case personality definition
+├── specs/
+│   ├── 001-gpt-worker/
+│   ├── 002-ssh-worker/
+│   └── 003-shell-command-extraction/
+└── main.py
+```
+
+#### Features
+- **Chat Processing**: Receives user messages, sends to GPT-4o
+- **Command Extraction**: Parses response for JSON shell commands
+- **Hub Communication**: Sends extracted commands to hub
+- **Case Personality**: Dry, efficient humor (75%) inspired by Interstellar
+
+#### Configuration (`config.py`)
+```python
+HOST: 0.0.0.0
+PORT: 8000
+OPENAI_API_KEY: (required)
+OPENAI_MODEL: gpt-4o
+OPENAI_MAX_TOKENS: 4096
+OPENAI_TEMPERATURE: 0.7
+API_KEY: (for hub auth)
+HUB_COMMAND_URL: (optional)
+ALLOWED_ORIGINS: *
+RATE_LIMIT: 100 requests/60s
+```
+
+#### System Prompt (Case Personality)
+Located at: `workers/gpt/docs/system_prompt.md`
+
+**Key Rules**:
+1. Never refer to self as "assistant" or "AI"
+2. Speak Korean
+3. Be concise, no corporate pleasantries
+4. Humor setting: 75%
+5. Return shell commands as JSON blocks:
+```json
+{
+  "action": "execute",
+  "command": "ls -la",
+  "confirm": true,
+  "description": "List files"
+}
+```
+
+#### API Endpoints
+**POST /chat**
+- Request: `{ content: string }`
+- Response: `{ message: { content, role, status, parsed_content } }`
+- Auth: API key or OAuth
+
+---
+
+### 3.2 SSH Worker (`/workers/ssh/`)
+
+**Purpose**: Execute shell commands on target systems
+
+#### Structure
+```
+workers/ssh/
+├── app/
+│   ├── api/
+│   │   ├── dependencies.py
+│   │   └── routes/
+│   │       ├── health.py
+│   │       └── command.py
+│   ├── core/
+│   │   └── security.py
+│   ├── models/
+│   ├── services/
+│   │   └── ssh_service.py
+│   └── config.py
+├── main.py
+└── requirements.txt
+```
+
+#### Features
+- Execute shell commands via SSH
+- Command validation and security checks
+- Health monitoring
+
+---
+
+### 3.3 Ollama Worker (`/workers/ollama/`)
+
+**Purpose**: Local LLM integration (alternative to OpenAI)
+
+#### Structure
+```
+workers/ollama/
+├── app/
+│   ├── api/
+│   │   ├── dependencies.py
+│   │   └── routes/
+│   │       └── chat.py
+│   ├── core/
+│   ├── models/
+│   └── config.py
+└── specs/
+    └── 004-ollama-worker/
+```
+
+**Status**: Implementation in progress
+
+---
+
+## 4. Specifications (`/workers/gpt/specs/`)
+
+### Available Specs
+1. **001-gpt-worker**: Initial GPT worker implementation
+2. **002-ssh-worker**: SSH command execution design
+3. **003-shell-command-extraction**: Command parsing from GPT responses
+
+---
+
+## Git Status (Snapshot)
+
+### Modified Files
+- `android/components/chat/ChatInput.tsx` - Chat input component
+- `android/services/api/types.ts` - API types
+- `workers/gpt/app/api/routes/chat.py` - Chat endpoint
+- `workers/gpt/app/config.py` - Configuration
+- `workers/gpt/app/services/message_parser.py` - Message parsing
+- `workers/gpt/docs/system_prompt.md` - System prompt
+
+### Untracked Files
+- `structure.txt` (this file)
+- `workers/gpt/app/services/hub_service.py` - New hub service
+- `workers/gpt/specs/002-ssh-worker/` - SSH worker spec
+- `workers/gpt/specs/003-shell-command-extraction/` - Command extraction spec
+- `workers/ollama/` - New Ollama worker
+- `workers/specs/` - Worker specs
+- `workers/ssh/` - New SSH worker
+
+### Recent Commits
+1. `chore: 정리 작업` (cleanup)
+2. `refactor: 시스템 프롬프트 외부 파일로 분리 및 설정 개선`
+3. `feat: Case 브랜딩 적용 및 게이트웨이 API 키 전달`
+4. `fix(android): 웹 플랫폼 인증 스킵 및 API URL 업데이트`
+
+---
+
+## Data Flow
+
+### Typical Message Flow
+1. **User Input**: User types message in Android app
+2. **ChatInput Component**: Validates and sends via API service
+3. **Hub**: Receives at `:5000`, adds API key, forwards to GPT worker
+4. **GPT Worker**:
+   - Authenticates request
+   - Sends message to OpenAI GPT-4o with Case personality
+   - Receives response
+   - Parses for shell commands (JSON blocks)
+   - Sends commands to hub (if any)
+5. **Command Execution**: Hub forwards commands to SSH worker
+6. **Response**: Cleaned text (without command blocks) returned to app
+
+### Command Extraction Example
+**GPT Response**:
+```
+파일 목록을 확인해드리겠습니다.
+
+```json
+{
+  "action": "execute",
+  "command": "ls -la",
+  "confirm": true,
+  "description": "List directory contents"
+}
+```
+
+완료했습니다.
+```
+
+**Parsed Result**:
+- `text`: "파일 목록을 확인해드리겠습니다.\n\n완료했습니다."
+- `commands`: `[{ action: "execute", command: "ls -la", ... }]`
+
+---
+
+## Environment Variables
+
+### Hub (`.env`)
+```
+PORT=5000
+PYTHON_WORKER_URL=http://localhost:8000
+FORWARD_TIMEOUT_MS=120000
+HUB_API_KEY=your_key
+LOG_LEVEL=info
+```
+
+### GPT Worker (`.env`)
+```
+HOST=0.0.0.0
+PORT=8000
+DEBUG=false
+OPENAI_API_KEY=sk-...
+OPENAI_MODEL=gpt-4o
+OPENAI_MAX_TOKENS=4096
+OPENAI_TEMPERATURE=0.7
+API_KEY=hub_shared_key
+OAUTH_ISSUER_URL=...
+OAUTH_INTROSPECTION_URL=...
+OAUTH_CLIENT_ID=...
+OAUTH_CLIENT_SECRET=...
+ALLOWED_ORIGINS=*
+RATE_LIMIT_REQUESTS=100
+RATE_LIMIT_WINDOW_SECONDS=60
+HUB_COMMAND_URL=http://localhost:5000/commands
+```
+
+---
+
+## Security
+
+### Authentication Layers
+1. **Mobile App**: Biometric authentication (Face ID/Touch ID)
+2. **Hub**: No auth (trusted internal network)
+3. **Workers**: API key (injected by hub) OR OAuth token
+
+### Security Features
+- API key validation
+- OAuth introspection support
+- Rate limiting (100 req/60s)
+- CORS configuration
+- Command confirmation flags (prevent destructive operations)
+
+---
+
+## Development Workflow
+
+### Starting the System
+```bash
+# Terminal 1: Hub
+cd hub
+npm start  # or node hub.js
+
+# Terminal 2: GPT Worker
+cd workers/gpt
+source venv/bin/activate
+python main.py
+
+# Terminal 3: SSH Worker
+cd workers/ssh
+source venv/bin/activate
+python main.py
+
+# Terminal 4: Android App
+cd android
+npm start
+```
+
+### Testing
+```bash
+# Health check
+curl http://localhost:5000/health
+
+# Chat endpoint
+curl -X POST http://localhost:5000/chat \
+  -H "Content-Type: application/json" \
+  -d '{"content": "안녕하세요"}'
+```
+
+---
+
+## Code Statistics
+
+### Lines of Code
+- **Hub**: ~120 lines (hub.js)
+- **GPT Worker Services**: ~305 lines (services/*.py)
+- **SSH Worker Services**: Included in above
+- **Android App**: ~100+ files (React Native + TypeScript)
+
+### Directory Sizes
+- **android/**: 426MB (includes node_modules)
+- **workers/**: 73MB (includes Python venv)
+- **hub/**: 14MB (includes node_modules)
+
+---
+
+## Technology Stack Summary
+
+| Component | Language | Framework | Key Libraries |
+|-----------|----------|-----------|--------------|
+| Android App | TypeScript | React Native + Expo | expo-router, expo-local-authentication |
+| Hub | JavaScript | Fastify | dotenv |
+| GPT Worker | Python 3.x | FastAPI | openai, pydantic, pydantic-settings |
+| SSH Worker | Python 3.x | FastAPI | paramiko (assumed) |
+| Ollama Worker | Python 3.x | FastAPI | ollama (assumed) |
+
+---
+
+## Future Enhancements
+
+Based on untracked files and specs:
+1. **SSH Worker**: Shell command execution (in progress)
+2. **Ollama Integration**: Local LLM as OpenAI alternative
+3. **Conversation History**: Currently not implemented
+4. **Command Execution Feedback**: Return command results to user
+
+---
+
+## Notes
+
+- System uses Korean language for user interaction
+- Case personality is core to the UX (干, efficient, 75% humor)
+- All workers follow FastAPI pattern with similar structure
+- Hub provides unified API key management
+- Mobile app handles platform differences (Android/iOS/Web)
