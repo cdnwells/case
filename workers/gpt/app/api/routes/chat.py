@@ -33,8 +33,8 @@ async def send_message(
         conversation_history=None,  # TODO: Add conversation history support
     )
 
-    # Parse response for shell commands
-    parsed_content = parse_message_content(response_content)
+    # Parse response and pass user request for [EXECUTE] detection
+    parsed_content = parse_message_content(response_content, user_request=request.content)
 
     # Send commands to hub if any were extracted
     commands_sent = False

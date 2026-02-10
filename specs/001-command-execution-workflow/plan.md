@@ -1,12 +1,15 @@
 # Computer Command Execution Workflow Implementation Plan
 
+> **Updated Approach**: Changed from JSON command extraction to conversational instructions.
+> Instead of extracting specific shell commands like `ls -la`, we now send conversational instructions like "Show me the files" directly to Claude Code, which interprets them naturally.
+
 ## Context
 
 The Case system needs to support computer command execution across multiple components:
 - **Android app** sends natural language instructions via chat
-- **GPT Worker** extracts shell commands from AI responses
+- **GPT Worker** detects computer tasks and marks them with `<computer>` tags
 - **Hub** routes requests and manages async execution
-- **Claude Worker** executes commands via Claude CLI
+- **Claude Worker** executes conversational instructions via Claude CLI (`claude -p "instruction"`)
 
 Currently, the GPT worker can extract commands but there's no complete flow for:
 1. Routing commands from Hub to Claude Worker

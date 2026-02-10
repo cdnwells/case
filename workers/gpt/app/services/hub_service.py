@@ -1,3 +1,4 @@
+import asyncio
 import httpx
 import logging
 from typing import List, Optional
@@ -8,27 +9,15 @@ from ..config import settings
 logger = logging.getLogger(__name__)
 
 
-def format_commands_as_markdown(commands: List[ShellCommand]) -> str:
-    """Format shell commands as markdown content"""
-    lines = [
-        f"# Shell Commands",
-        f"Generated: {datetime.utcnow().isoformat()}",
-        "",
+def format_commands_as_json(commands: List[ShellCommand]) -> List[dict]:
+    """Format conversational instructions as JSON for Claude Code"""
+    return [
+        {
+            "command": cmd.command,  # Conversational instruction
+            "timeout": cmd.timeout_seconds,
+        }
+        for cmd in commands
     ]
-
-    for i, cmd in enumerate(commands, 1):
-        lines.append(f"## Command {i}")
-        if cmd.description:
-            lines.append(f"**Description:** {cmd.description}")
-        lines.append(f"**Requires Confirmation:** {cmd.requires_confirmation}")
-        lines.append(f"**Timeout:** {cmd.timeout_seconds}s")
-        lines.append("")
-        lines.append("```shell")
-        lines.append(cmd.command)
-        lines.append("```")
-        lines.append("")
-
-    return "\n".join(lines)
 
 
 async def send_commands_to_hub(
@@ -36,10 +25,10 @@ async def send_commands_to_hub(
     api_key: Optional[str] = None,
 ) -> bool:
     """
-    Send extracted shell commands to the hub.
+    Send conversational instructions to the hub for Claude Code execution.
 
     Args:
-        commands: List of ShellCommand objects to send
+        commands: List of ShellCommand objects (containing conversational instructions)
         api_key: API key for authentication (uses settings.API_KEY if not provided)
 
     Returns:
@@ -53,31 +42,40 @@ async def send_commands_to_hub(
         logger.debug("No commands to send")
         return True
 
-    markdown_content = format_commands_as_markdown(commands)
     auth_key = api_key or settings.API_KEY
-
     headers = {
-        "Content-Type": "text/markdown",
+        "Content-Type": "application/json",
     }
     if auth_key:
         headers["Authorization"] = f"Bearer {auth_key}"
 
+    # Send each instruction separately for parallel execution
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:
-            response = await client.post(
-                settings.HUB_COMMAND_URL,
-                content=markdown_content,
-                headers=headers,
-            )
-            response.raise_for_status()
-            logger.info(f"Successfully sent {len(commands)} commands to hub")
-            return True
-    except httpx.HTTPStatusError as e:
-        logger.error(f"Hub returned error: {e.response.status_code} - {e.response.text}")
-        return False
-    except httpx.RequestError as e:
-        logger.error(f"Failed to connect to hub: {e}")
-        return False
+            # Send all commands in parallel
+            tasks = []
+            for cmd in commands:
+                task = client.post(
+                    settings.HUB_COMMAND_URL,
+                    json={"command": cmd.command, "timeout": cmd.timeout_seconds},
+                    headers=headers,
+                )
+                tasks.append(task)
+
+            # Wait for all to complete
+            responses = await asyncio.gather(*tasks, return_exceptions=True)
+
+            success_count = 0
+            for i, response in enumerate(responses):
+                if isinstance(response, Exception):
+                    logger.error(f"Command {i+1} failed: {response}")
+                else:
+                    response.raise_for_status()
+                    success_count += 1
+
+            logger.info(f"Successfully sent {success_count}/{len(commands)} commands to hub")
+            return success_count > 0
+
     except Exception as e:
         logger.exception(f"Unexpected error sending commands to hub: {e}")
         return False

@@ -3,8 +3,8 @@ import json
 from typing import List
 from ..models.message import ShellCommand, MessageContent
 
-COMMAND_PATTERN = re.compile(
-    r"```json\s*(.*?)\s*```", re.DOTALL | re.MULTILINE
+EXECUTE_TAG_PATTERN = re.compile(
+    r"\[EXECUTE\]", re.IGNORECASE
 )
 
 import os
@@ -28,38 +28,31 @@ def load_system_prompt():
 SYSTEM_PROMPT = load_system_prompt()
 
 
-def parse_message_content(content: str) -> MessageContent:
-    """Parse GPT response to extract shell commands"""
+def parse_message_content(content: str, user_request: str = None) -> MessageContent:
+    """
+    Parse GPT response to detect if it's a computer task.
+    If [EXECUTE] tag is present, use the original user request as the command.
+    """
     commands: List[ShellCommand] = []
-    text_parts: List[str] = []
-    last_end = 0
 
-    for match in COMMAND_PATTERN.finditer(content):
-        # Add text before this command block
-        text_parts.append(content[last_end : match.start()])
-        last_end = match.end()
+    # Check if response contains [EXECUTE] tag
+    has_execute_tag = EXECUTE_TAG_PATTERN.search(content)
 
-        # Parse command metadata
-        json_str = match.group(1)
-        
-        try:
-            data = json.loads(json_str)
-            if data.get("action") == "execute" and "command" in data:
-                commands.append(
-                    ShellCommand(
-                        command=data["command"],
-                        description=data.get("description"),
-                        requires_confirmation=data.get("confirm", True),
-                        timeout_seconds=data.get("timeout", 30),
-                    )
-                )
-        except json.JSONDecodeError:
-            pass
+    if has_execute_tag and user_request:
+        # Use the original user request as the conversational instruction
+        commands.append(
+            ShellCommand(
+                command=user_request,  # User's original request
+                description="Computer task",
+                requires_confirmation=False,
+                timeout_seconds=120,
+            )
+        )
 
-    # Add remaining text
-    text_parts.append(content[last_end:])
+    # Remove [EXECUTE] tag from response text
+    clean_text = EXECUTE_TAG_PATTERN.sub("", content).strip()
 
     return MessageContent(
-        text="".join(text_parts).strip(),
+        text=clean_text,
         commands=commands if commands else None,
     )
