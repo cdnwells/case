@@ -1,5 +1,9 @@
-import { SendMessageRequest, SendMessageResponse, CommandResultResponse } from '@/types/chat';
-import { API_BASE_URL, IChatService } from './types';
+import {
+  SendMessageRequest,
+  SendMessageResponse,
+  CommandResultResponse,
+} from "@/types/chat";
+import { API_BASE_URL, IChatService } from "./types";
 
 export class ChatService implements IChatService {
   private baseUrl: string;
@@ -10,9 +14,9 @@ export class ChatService implements IChatService {
 
   async sendMessage(request: SendMessageRequest): Promise<SendMessageResponse> {
     const response = await fetch(`${this.baseUrl}/chat`, {
-      method: 'POST',
+      method: "POST",
       headers: {
-        'Content-Type': 'application/json',
+        "Content-Type": "application/json",
       },
       body: JSON.stringify(request),
     });
@@ -25,11 +29,13 @@ export class ChatService implements IChatService {
   }
 
   async pollCommandResult(executionId: string): Promise<CommandResultResponse> {
-    const response = await fetch(`${this.baseUrl}/command/result/${executionId}`);
+    const response = await fetch(
+      `${this.baseUrl}/command/result/${executionId}`,
+    );
 
     if (!response.ok) {
       if (response.status === 404) {
-        return { status: 'not_found', executionId };
+        return { status: "not_found", executionId };
       }
       throw new Error(`HTTP error! status: ${response.status}`);
     }
