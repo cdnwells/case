@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import Voice from '@react-native-voice/voice';
-import { Platform, Alert } from 'react-native';
+import { Platform, Alert, PermissionsAndroid } from 'react-native';
 
 type VoiceState = 'idle' | 'recording' | 'processing' | 'error';
 
@@ -118,8 +118,47 @@ export function useVoiceInput({
     };
   }, [clearSilenceTimer, stopRecording]);
 
+  const requestMicrophonePermission = useCallback(async (): Promise<boolean> => {
+    if (Platform.OS !== 'android') {
+      return true; // iOS permissions are handled via Info.plist
+    }
+
+    try {
+      const granted = await PermissionsAndroid.request(
+        PermissionsAndroid.PERMISSIONS.RECORD_AUDIO,
+        {
+          title: '마이크 권한 필요',
+          message: '음성 인식을 위해 마이크 접근 권한이 필요합니다.',
+          buttonNeutral: '나중에',
+          buttonNegative: '거부',
+          buttonPositive: '허용',
+        }
+      );
+
+      if (granted === PermissionsAndroid.RESULTS.GRANTED) {
+        return true;
+      } else {
+        Alert.alert(
+          '권한 거부됨',
+          '음성 인식을 사용하려면 설정에서 마이크 권한을 허용해주세요.'
+        );
+        return false;
+      }
+    } catch (error) {
+      console.error('Permission request error:', error);
+      return false;
+    }
+  }, []);
+
   const startRecording = useCallback(async () => {
     try {
+      // First, request microphone permission
+      const hasPermission = await requestMicrophonePermission();
+      if (!hasPermission) {
+        return;
+      }
+
+      // Check if voice recognition is available
       const isAvailable = await Voice.isAvailable();
       if (!isAvailable) {
         Alert.alert('음성 인식 불가', '이 기기에서는 음성 인식을 사용할 수 없습니다.');
@@ -134,7 +173,7 @@ export function useVoiceInput({
       console.error('Failed to start recording:', error);
       Alert.alert('오류', '음성 인식을 시작할 수 없습니다.');
     }
-  }, [locale, startSilenceTimer]);
+  }, [locale, startSilenceTimer, requestMicrophonePermission]);
 
   const cancelRecording = useCallback(async () => {
     try {
