@@ -1,11 +1,54 @@
 import json
 import logging
+import os
 import re
 from typing import List
 
 from ..models.message import MessageContent, ShellCommand
 
 logger = logging.getLogger(__name__)
+
+
+def load_shared_persona() -> str:
+    """Load shared Case persona from workers/shared directory"""
+    try:
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        # Navigate: workers/ollama/app/services -> workers/shared
+        workers_dir = os.path.dirname(os.path.dirname(os.path.dirname(current_dir)))
+        persona_path = os.path.join(workers_dir, "shared", "persona.md")
+
+        with open(persona_path, "r", encoding="utf-8") as f:
+            return f.read().strip()
+    except Exception as e:
+        logger.error(f"Failed to load shared persona: {e}")
+        return ""
+
+
+def load_response_format() -> str:
+    """Load Ollama-specific response format instructions"""
+    try:
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        root_dir = os.path.dirname(os.path.dirname(current_dir))
+        format_path = os.path.join(root_dir, "docs", "response_format.md")
+
+        with open(format_path, "r", encoding="utf-8") as f:
+            return f.read().strip()
+    except Exception as e:
+        logger.warning(f"Failed to load response format: {e}")
+        return ""
+
+
+def build_system_prompt() -> str:
+    """Build complete system prompt from persona + response format"""
+    persona = load_shared_persona()
+    response_format = load_response_format()
+
+    parts = [p for p in [persona, response_format] if p]
+    return "\n\n".join(parts) if parts else ""
+
+
+# Build prompt once at module load
+SYSTEM_PROMPT = build_system_prompt()
 
 # Pattern to match shell code blocks with optional JSON metadata
 # Matches: ```shell {"confirm": true, "description": "..."}\ncommand\n```

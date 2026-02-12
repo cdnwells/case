@@ -1,12 +1,32 @@
 import asyncio
 import time
 import logging
+import os
 from pathlib import Path
 from typing import Optional, Tuple
 from ..config import settings
 from ..core.exceptions import ClaudeBinaryException, ClaudeCommandException
 
 logger = logging.getLogger(__name__)
+
+
+def load_shared_persona() -> str:
+    """Load shared Case persona from workers/shared directory"""
+    try:
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        # Navigate: workers/claude/app/services -> workers/shared
+        workers_dir = os.path.dirname(os.path.dirname(os.path.dirname(current_dir)))
+        persona_path = os.path.join(workers_dir, "shared", "persona.md")
+
+        with open(persona_path, "r", encoding="utf-8") as f:
+            return f.read().strip()
+    except Exception as e:
+        logger.error(f"Failed to load shared persona: {e}")
+        return ""
+
+
+# Load persona once at module load
+PERSONA = load_shared_persona()
 
 
 class ClaudeService:
@@ -27,12 +47,17 @@ class ClaudeService:
         """
         start_time = time.time()
 
+        # Prepend persona to command if available
+        full_command = command
+        if PERSONA:
+            full_command = f"{PERSONA}\n\nYou should respond based on this persona and follow the instruction:\n\n{command}"
+
         # Build Claude CLI command
         claude_args = [
             self.claude_path,
             "--dangerously-skip-permissions",
             "-p",
-            command,
+            full_command,
         ]
 
         try:

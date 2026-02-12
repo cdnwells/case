@@ -6,6 +6,7 @@ import httpx
 
 from ..config import settings
 from ..core.exceptions import ModelNotFoundError, OllamaException
+from .message_parser import SYSTEM_PROMPT
 
 logger = logging.getLogger(__name__)
 
@@ -79,9 +80,17 @@ class OllamaService:
         try:
             client = await self.get_client()
 
+            # Prepend system prompt if available
+            messages_with_system = messages
+            if SYSTEM_PROMPT:
+                messages_with_system = [
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    *messages
+                ]
+
             payload = {
                 "model": self.model,
-                "messages": messages,
+                "messages": messages_with_system,
                 "stream": False,
             }
 
@@ -116,9 +125,17 @@ class OllamaService:
         try:
             client = await self.get_client()
 
+            # Prepend system prompt if available
+            messages_with_system = messages
+            if SYSTEM_PROMPT:
+                messages_with_system = [
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    *messages
+                ]
+
             payload = {
                 "model": self.model,
-                "messages": messages,
+                "messages": messages_with_system,
                 "stream": True,
             }
 

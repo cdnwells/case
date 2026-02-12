@@ -12,20 +12,47 @@ logger = logging.getLogger(__name__)
 JSON_BLOCK_PATTERN = re.compile(r"```(?:json)?\s*(\{.*?\})\s*```", re.DOTALL)
 
 
-def load_system_prompt():
-    """Load system prompt from markdown file"""
+def load_shared_persona() -> str:
+    """Load shared Case persona from workers/shared directory"""
+    try:
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        # Navigate: workers/gpt/app/services -> workers/shared
+        workers_dir = os.path.dirname(os.path.dirname(os.path.dirname(current_dir)))
+        persona_path = os.path.join(workers_dir, "shared", "persona.md")
+
+        with open(persona_path, "r", encoding="utf-8") as f:
+            return f.read().strip()
+    except Exception as e:
+        logger.error(f"Failed to load shared persona: {e}")
+        return "You are Case, a helpful assistant."
+
+
+def load_response_format() -> str:
+    """Load GPT-specific response format instructions"""
     try:
         current_dir = os.path.dirname(os.path.abspath(__file__))
         root_dir = os.path.dirname(os.path.dirname(current_dir))
-        prompt_path = os.path.join(root_dir, "docs", "system_prompt.md")
+        format_path = os.path.join(root_dir, "docs", "response_format.md")
 
-        with open(prompt_path, "r", encoding="utf-8") as f:
+        with open(format_path, "r", encoding="utf-8") as f:
             return f.read().strip()
     except Exception as e:
-        print(f"Failed to load system prompt file: {e}")
-        return "You are Case, a helpful assistant."
+        logger.warning(f"Failed to load response format: {e}")
+        return ""
 
-SYSTEM_PROMPT = load_system_prompt()
+
+def build_system_prompt() -> str:
+    """Build complete system prompt from persona + response format"""
+    persona = load_shared_persona()
+    response_format = load_response_format()
+
+    if response_format:
+        return f"{persona}\n\n{response_format}"
+    return persona
+
+
+# Build prompt once at module load
+SYSTEM_PROMPT = build_system_prompt()
 
 
 def _try_parse_json(content: str) -> dict | None:
