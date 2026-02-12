@@ -1,8 +1,12 @@
-import { useEffect, useRef, useState, useCallback } from 'react';
-import Voice from '@react-native-voice/voice';
-import { Platform, Alert, PermissionsAndroid } from 'react-native';
+import { useEffect, useRef, useState, useCallback } from "react";
+import {
+  useSpeechRecognitionEvent,
+  ExpoSpeechRecognitionModule,
+  AudioEncodingAndroid,
+} from "expo-speech-recognition";
+import { Alert } from "react-native";
 
-type VoiceState = 'idle' | 'recording' | 'processing' | 'error';
+type VoiceState = "idle" | "recording" | "processing" | "error";
 
 interface UseVoiceInputOptions {
   onTranscript: (text: string) => void;
@@ -22,14 +26,14 @@ interface UseVoiceInputReturn {
 
 export function useVoiceInput({
   onTranscript,
-  locale = 'ko-KR',
+  locale = "ko-KR",
   silenceTimeout = 4000,
 }: UseVoiceInputOptions): UseVoiceInputReturn {
-  const [state, setState] = useState<VoiceState>('idle');
+  const [state, setState] = useState<VoiceState>("idle");
   const [error, setError] = useState<string | null>(null);
-  const silenceTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const silenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastSpeechTimeRef = useRef<number | null>(null);
-  const currentTranscriptRef = useRef<string>('');
+  const currentTranscriptRef = useRef<string>("");
 
   // Clear silence timer
   const clearSilenceTimer = useCallback(() => {
@@ -60,143 +64,136 @@ export function useVoiceInput({
     silenceTimerRef.current = setTimeout(checkSilence, 500);
   }, [silenceTimeout]);
 
+  // Listen to speech recognition results
+  useSpeechRecognitionEvent("result", (event) => {
+    const transcript = event.results[0]?.transcript;
+    if (transcript) {
+      currentTranscriptRef.current = transcript;
+      lastSpeechTimeRef.current = Date.now();
+    }
+  });
+
+  // Listen to speech recognition end
+  useSpeechRecognitionEvent("end", () => {
+    clearSilenceTimer();
+    const transcript = currentTranscriptRef.current;
+    if (transcript.trim()) {
+      onTranscript(transcript);
+    }
+    setState("idle");
+    currentTranscriptRef.current = "";
+  });
+
+  // Listen to speech recognition errors
+  useSpeechRecognitionEvent("error", (event) => {
+    console.error("Speech error:", event);
+    setState("error");
+    setError(event.error || "Voice recognition failed");
+    clearSilenceTimer();
+
+    // Auto-reset to idle after 1s
+    setTimeout(() => {
+      setState("idle");
+      setError(null);
+    }, 1000);
+  });
+
+  // Listen to speech recognition start
+  useSpeechRecognitionEvent("start", () => {
+    setState("recording");
+  });
+
   const stopRecording = useCallback(async () => {
     try {
       clearSilenceTimer();
-      setState('processing');
-      await Voice.stop();
-
-      // Small delay to ensure transcript is captured
-      setTimeout(() => {
-        const transcript = currentTranscriptRef.current;
-        if (transcript.trim()) {
-          onTranscript(transcript);
-        }
-        setState('idle');
-        currentTranscriptRef.current = '';
-      }, 300);
+      setState("processing");
+      await ExpoSpeechRecognitionModule.stop();
     } catch (error) {
-      console.error('Failed to stop recording:', error);
-      setState('error');
-      setTimeout(() => setState('idle'), 1000);
+      console.error("Failed to stop recording:", error);
+      setState("error");
+      setTimeout(() => setState("idle"), 1000);
     }
-  }, [onTranscript, clearSilenceTimer]);
-
-  // Initialize Voice listeners
-  useEffect(() => {
-    Voice.onSpeechStart = () => {
-      setState('recording');
-    };
-
-    Voice.onSpeechEnd = () => {
-      clearSilenceTimer();
-    };
-
-    Voice.onSpeechResults = (e) => {
-      if (e.value && e.value[0]) {
-        currentTranscriptRef.current = e.value[0];
-        lastSpeechTimeRef.current = Date.now();
-      }
-    };
-
-    Voice.onSpeechError = (e) => {
-      console.error('Speech error:', e);
-      setState('error');
-      setError(e.error?.message || 'Voice recognition failed');
-      clearSilenceTimer();
-
-      // Auto-reset to idle after 1s
-      setTimeout(() => {
-        setState('idle');
-        setError(null);
-      }, 1000);
-    };
-
-    return () => {
-      Voice.destroy().then(Voice.removeAllListeners);
-      clearSilenceTimer();
-    };
-  }, [clearSilenceTimer, stopRecording]);
-
-  const requestMicrophonePermission = useCallback(async (): Promise<boolean> => {
-    if (Platform.OS !== 'android') {
-      return true; // iOS permissions are handled via Info.plist
-    }
-
-    try {
-      const granted = await PermissionsAndroid.request(
-        PermissionsAndroid.PERMISSIONS.RECORD_AUDIO,
-        {
-          title: '마이크 권한 필요',
-          message: '음성 인식을 위해 마이크 접근 권한이 필요합니다.',
-          buttonNeutral: '나중에',
-          buttonNegative: '거부',
-          buttonPositive: '허용',
-        }
-      );
-
-      if (granted === PermissionsAndroid.RESULTS.GRANTED) {
-        return true;
-      } else {
-        Alert.alert(
-          '권한 거부됨',
-          '음성 인식을 사용하려면 설정에서 마이크 권한을 허용해주세요.'
-        );
-        return false;
-      }
-    } catch (error) {
-      console.error('Permission request error:', error);
-      return false;
-    }
-  }, []);
+  }, [clearSilenceTimer]);
 
   const startRecording = useCallback(async () => {
     try {
-      // First, request microphone permission
-      const hasPermission = await requestMicrophonePermission();
-      if (!hasPermission) {
+      // Request permissions
+      const { granted } =
+        await ExpoSpeechRecognitionModule.requestPermissionsAsync();
+      if (!granted) {
+        Alert.alert(
+          "권한 거부됨",
+          "음성 인식을 사용하려면 설정에서 마이크 권한을 허용해주세요.",
+        );
         return;
       }
 
-      // Start voice recognition directly
-      // The Voice library will handle availability checks internally
-      currentTranscriptRef.current = '';
-      await Voice.start(locale);
-      setState('recording');
+      // Start recording
+      currentTranscriptRef.current = "";
+      await ExpoSpeechRecognitionModule.start({
+        lang: locale,
+        interimResults: true,
+        maxAlternatives: 1,
+        continuous: false,
+        requiresOnDeviceRecognition: false,
+        addsPunctuation: false,
+        contextualStrings: [],
+      });
+
+      setState("recording");
       startSilenceTimer();
     } catch (error: any) {
-      console.error('Failed to start recording:', error);
+      console.error("Failed to start recording:", error);
 
-      // Provide more specific error messages
-      if (error?.message?.includes('not available') || error?.message?.includes('not supported')) {
-        Alert.alert('음성 인식 불가', '이 기기에서는 음성 인식을 사용할 수 없습니다.');
-      } else if (error?.message?.includes('permission')) {
-        Alert.alert('권한 오류', '마이크 권한이 필요합니다. 설정에서 권한을 확인해주세요.');
+      if (
+        error?.message?.includes("not available") ||
+        error?.message?.includes("not supported")
+      ) {
+        Alert.alert(
+          "음성 인식 불가",
+          "이 기기에서는 음성 인식을 사용할 수 없습니다.",
+        );
+      } else if (error?.message?.includes("permission")) {
+        Alert.alert(
+          "권한 오류",
+          "마이크 권한이 필요합니다. 설정에서 권한을 확인해주세요.",
+        );
       } else {
-        Alert.alert('오류', '음성 인식을 시작할 수 없습니다. 앱을 다시 시작해주세요.');
+        Alert.alert(
+          "오류",
+          "음성 인식을 시작할 수 없습니다. 앱을 다시 시작해주세요.",
+        );
       }
 
-      setState('error');
-      setTimeout(() => setState('idle'), 1000);
+      setState("error");
+      setTimeout(() => setState("idle"), 1000);
     }
-  }, [locale, startSilenceTimer, requestMicrophonePermission]);
+  }, [locale, startSilenceTimer]);
 
   const cancelRecording = useCallback(async () => {
     try {
       clearSilenceTimer();
-      await Voice.cancel();
-      setState('idle');
-      currentTranscriptRef.current = '';
+      await ExpoSpeechRecognitionModule.abort();
+      setState("idle");
+      currentTranscriptRef.current = "";
     } catch (error) {
-      console.error('Failed to cancel recording:', error);
+      console.error("Failed to cancel recording:", error);
     }
+  }, [clearSilenceTimer]);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      clearSilenceTimer();
+      ExpoSpeechRecognitionModule.abort();
+    };
   }, [clearSilenceTimer]);
 
   return {
     state,
     error,
-    isRecording: state === 'recording',
-    isProcessing: state === 'processing',
+    isRecording: state === "recording",
+    isProcessing: state === "processing",
     startRecording,
     stopRecording,
     cancelRecording,
