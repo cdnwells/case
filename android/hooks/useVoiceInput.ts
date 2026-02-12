@@ -11,6 +11,7 @@ interface UseVoiceInputOptions {
   onTranscript: (text: string) => void;
   locale?: string;
   silenceTimeout?: number;
+  active?: boolean;
 }
 
 interface UseVoiceInputReturn {
@@ -27,12 +28,17 @@ export function useVoiceInput({
   onTranscript,
   locale = "ko-KR",
   silenceTimeout = 4000,
+  active = true,
 }: UseVoiceInputOptions): UseVoiceInputReturn {
   const [state, setState] = useState<VoiceState>("idle");
   const [error, setError] = useState<string | null>(null);
   const silenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastSpeechTimeRef = useRef<number | null>(null);
   const currentTranscriptRef = useRef<string>("");
+
+  // Ref for active flag to avoid stale closures in event handlers
+  const activeRef = useRef(active);
+  activeRef.current = active;
 
   // Clear silence timer
   const clearSilenceTimer = useCallback(() => {
@@ -65,6 +71,7 @@ export function useVoiceInput({
 
   // Listen to speech recognition results
   useSpeechRecognitionEvent("result", (event) => {
+    if (!activeRef.current) return;
     const transcript = event.results[0]?.transcript;
     if (transcript) {
       currentTranscriptRef.current = transcript;
@@ -74,6 +81,7 @@ export function useVoiceInput({
 
   // Listen to speech recognition end
   useSpeechRecognitionEvent("end", () => {
+    if (!activeRef.current) return;
     clearSilenceTimer();
     const transcript = currentTranscriptRef.current;
     if (transcript.trim()) {
@@ -85,6 +93,7 @@ export function useVoiceInput({
 
   // Listen to speech recognition errors
   useSpeechRecognitionEvent("error", (event) => {
+    if (!activeRef.current) return;
     console.error("Speech error:", event);
     setState("error");
     setError(event.error || "Voice recognition failed");
@@ -99,6 +108,7 @@ export function useVoiceInput({
 
   // Listen to speech recognition start
   useSpeechRecognitionEvent("start", () => {
+    if (!activeRef.current) return;
     setState("recording");
   });
 

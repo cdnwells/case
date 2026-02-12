@@ -3,8 +3,9 @@ import { useColorScheme } from "@/hooks/use-color-scheme";
 import { useThemeColor } from "@/hooks/use-theme-color";
 import { useTextToSpeech } from "@/hooks/useTextToSpeech";
 import { useVoiceInput } from "@/hooks/useVoiceInput";
+import { useWakeWord } from "@/hooks/useWakeWord";
 import * as Haptics from "expo-haptics";
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, useCallback } from "react";
 import {
   Platform,
   StyleSheet,
@@ -87,6 +88,7 @@ export function ChatInput({
     },
     locale: "ko-KR",
     silenceTimeout: 4000,
+    active: isVoiceMode,
   });
 
   // Track when recording actually starts
@@ -109,6 +111,25 @@ export function ChatInput({
       hasStartedRecording.current = false;
     }
   }, [isVoiceMode, voiceState, isRecording, isProcessing]);
+
+  // Wake word detection — always-on listener for "case"
+  const handleWakeWordDetected = useCallback(async () => {
+    if (Platform.OS !== "web") {
+      await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+    }
+    if (isSpeaking) {
+      stopSpeaking();
+    }
+    hasStartedRecording.current = false;
+    setIsVoiceMode(true);
+    textInputRef.current?.blur();
+    await startRecording();
+  }, [isSpeaking, stopSpeaking, startRecording]);
+
+  useWakeWord({
+    enabled: !isVoiceMode && !isRecording && !isProcessing,
+    onDetected: handleWakeWordDetected,
+  });
 
   // Pulse animation for send button in voice mode
   const scale = useSharedValue(1);
@@ -230,7 +251,7 @@ export function ChatInput({
               styles.sendButton,
               {
                 backgroundColor: isVoiceMode
-                  ? "#ff4444"
+                  ? "gray"
                   : canSend
                     ? caseColor
                     : "transparent",
@@ -290,6 +311,7 @@ const styles = StyleSheet.create({
     fontSize: 16,
     maxHeight: 120,
     paddingVertical: 8,
+    paddingLeft: 10,
   },
   sendButton: {
     width: 32,

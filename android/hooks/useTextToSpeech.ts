@@ -14,7 +14,7 @@ interface UseTextToSpeechReturn {
 }
 
 export function useTextToSpeech({
-  language = "ko-KR",
+  language = "en-US",
   pitch = 1.0,
   rate = 1.0,
 }: UseTextToSpeechOptions = {}): UseTextToSpeechReturn {
@@ -26,13 +26,16 @@ export function useTextToSpeech({
     (async () => {
       try {
         const voices = await Speech.getAvailableVoicesAsync();
-        const koreanMale = voices.find(
-          (v) =>
-            v.language.startsWith("ko") &&
-            (/male/i.test(v.name) || /남성/i.test(v.name)),
+        // const koreanMale = voices.find(
+        //   (v) =>
+        //     v.language.startsWith("ko") &&
+        //     (/male/i.test(v.name) || /남성/i.test(v.name)),
+        // );
+        const selectedVoice = voices.find(
+          (voice) => voice.name.includes("Male") || voice.name.includes("KR"),
         );
-        if (koreanMale) {
-          voiceIdRef.current = koreanMale.identifier;
+        if (selectedVoice) {
+          voiceIdRef.current = selectedVoice.identifier;
         }
       } catch {
         /* ignore - will use default voice */
