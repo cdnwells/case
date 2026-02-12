@@ -1,11 +1,11 @@
 {
   "expo": {
-    "name": "android-fresh",
-    "slug": "android-fresh",
+    "name": "case-android",
+    "slug": "case-android",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "androidfresh",
+    "scheme": "caseandroid",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "splash": {
