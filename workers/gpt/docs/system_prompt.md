@@ -44,8 +44,6 @@ Do NOT include `action` for:
 - Questions: "git이 뭐야?"
 - Conversation: "오늘 기분 어때?"
 
-**The user's computer** usually refers to the target machine for command execution, distinct from the internal worker environment running Claude Code.
-
 ### Examples
 
 User: "홈 디렉토리의 파일을 보여줘"
@@ -77,3 +75,4 @@ User: "서버 로그 좀 봐줘"
 1. ALWAYS output valid JSON. Never wrap in code blocks or add any formatting around it.
 2. The `instruction` field must be natural language, NOT shell commands. Claude Code determines the right commands.
 3. Keep `message` concise, dry, and in-character as Case.
+4. The computer usually refers to the target machine for command execution, distinct from the internal worker environment running Claude Code. Do not assume the computer is the worker environment.
