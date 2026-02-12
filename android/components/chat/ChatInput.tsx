@@ -43,7 +43,9 @@ export function ChatInput({
   const caseColor = useThemeColor({}, "symbolColor");
   const placeholderColor = colorScheme === "dark" ? "#636366" : "#8e8e93";
 
-  // TTS hook for left button
+  // TTS toggle state and hook
+  const [isTTSEnabled, setIsTTSEnabled] = useState(false);
+  const prevMessageRef = useRef<string | undefined>(undefined);
   const {
     isSpeaking,
     speak,
@@ -53,6 +55,18 @@ export function ChatInput({
     pitch: 1.0,
     rate: 1.0,
   });
+
+  // Auto-speak new assistant responses when TTS is enabled
+  useEffect(() => {
+    if (
+      isTTSEnabled &&
+      lastAssistantMessage &&
+      lastAssistantMessage !== prevMessageRef.current
+    ) {
+      speak(lastAssistantMessage);
+    }
+    prevMessageRef.current = lastAssistantMessage;
+  }, [isTTSEnabled, lastAssistantMessage, speak]);
 
   // Voice input hook for right button long-press
   const {
@@ -118,17 +132,16 @@ export function ChatInput({
     transform: [{ scale: scale.value }],
   }));
 
-  // --- TTS (left button) ---
-  const hasTTSContent = !!lastAssistantMessage;
-
+  // --- TTS toggle (left button) ---
   const handleTTSToggle = () => {
-    if (isSpeaking) {
+    if (Platform.OS !== "web") {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    }
+    if (isTTSEnabled) {
+      setIsTTSEnabled(false);
       stopSpeaking();
-    } else if (lastAssistantMessage) {
-      if (Platform.OS !== "web") {
-        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-      }
-      speak(lastAssistantMessage);
+    } else {
+      setIsTTSEnabled(true);
     }
   };
 
@@ -175,32 +188,23 @@ export function ChatInput({
   return (
     <View style={[styles.container, { paddingBottom: 8 }]}>
       <View style={[styles.inputContainer, { backgroundColor }]}>
-        {/* TTS button (left) */}
+        {/* TTS toggle button (left) */}
         <TouchableOpacity
           style={[
             styles.voiceButton,
             {
-              backgroundColor: isSpeaking
-                ? "#4A90D9"
-                : hasTTSContent
-                  ? "#e9e9e9"
-                  : "transparent",
+              backgroundColor: isTTSEnabled ? "#4A90D9" : "#e9e9e9",
             },
           ]}
           onPress={handleTTSToggle}
-          disabled={!hasTTSContent && !isSpeaking}
-          accessibilityLabel={isSpeaking ? "음성 읽기 중지" : "음성으로 읽기"}
+          accessibilityLabel={
+            isTTSEnabled ? "음성 출력 끄기" : "음성 출력 켜기"
+          }
         >
           <IconSymbol
-            name={isSpeaking ? "speaker.slash.fill" : "speaker.wave.2.fill"}
+            name={isTTSEnabled ? "speaker.wave.2.fill" : "speaker.slash.fill"}
             size={20}
-            color={
-              isSpeaking
-                ? "#FFFFFF"
-                : hasTTSContent
-                  ? "#4A90D9"
-                  : placeholderColor
-            }
+            color={isTTSEnabled ? "#FFFFFF" : placeholderColor}
           />
         </TouchableOpacity>
 
