@@ -15,11 +15,22 @@ DANGEROUS_PATTERNS = [
     r"\bwget.*\|\s*bash",
 ]
 
+SYSTEM_CONTROL_PATTERNS = [
+    r"\bshutdown\b",
+    r"\bpoweroff\b",
+    r"\breboot\b",
+    r"\bhalt\b",
+    r"\bsuspend\b",
+    r"\bhibernate\b",
+    r"\bsystemctl\s+(poweroff|reboot|halt|suspend|hibernate)",
+    r"\binit\s+[06]\b",
+]
+
 BLOCKED_PATTERNS = [
     r":()\{:\|:&\};:",
     r"\brm\s+-rf\s+/\s*$",
     r"\brm\s+-rf\s+/\*",
-]
+] + SYSTEM_CONTROL_PATTERNS
 
 
 def validate_command(command: str) -> dict:

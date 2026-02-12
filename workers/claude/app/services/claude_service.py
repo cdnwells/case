@@ -10,12 +10,18 @@ from ..core.exceptions import ClaudeBinaryException, ClaudeCommandException
 logger = logging.getLogger(__name__)
 
 
+def _get_claude_worker_dir() -> str:
+    """Get the claude worker root directory (workers/claude/)"""
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    # Navigate: workers/claude/app/services -> workers/claude
+    return os.path.dirname(os.path.dirname(current_dir))
+
+
 def load_shared_persona() -> str:
     """Load shared Case persona from workers/shared directory"""
     try:
-        current_dir = os.path.dirname(os.path.abspath(__file__))
-        # Navigate: workers/claude/app/services -> workers/shared
-        workers_dir = os.path.dirname(os.path.dirname(os.path.dirname(current_dir)))
+        claude_worker_dir = _get_claude_worker_dir()
+        workers_dir = os.path.dirname(claude_worker_dir)
         persona_path = os.path.join(workers_dir, "shared", "persona.md")
 
         with open(persona_path, "r", encoding="utf-8") as f:
@@ -25,8 +31,29 @@ def load_shared_persona() -> str:
         return ""
 
 
-# Load persona once at module load
+def load_worker_docs() -> str:
+    """Load all .md instruction files from workers/claude/docs/"""
+    try:
+        docs_dir = os.path.join(_get_claude_worker_dir(), "docs")
+        if not os.path.isdir(docs_dir):
+            return ""
+
+        docs_parts = []
+        for filename in sorted(os.listdir(docs_dir)):
+            if filename.endswith(".md"):
+                filepath = os.path.join(docs_dir, filename)
+                with open(filepath, "r", encoding="utf-8") as f:
+                    docs_parts.append(f.read().strip())
+
+        return "\n\n".join(docs_parts)
+    except Exception as e:
+        logger.error(f"Failed to load worker docs: {e}")
+        return ""
+
+
+# Load persona and docs once at module load
 PERSONA = load_shared_persona()
+WORKER_DOCS = load_worker_docs()
 
 
 class ClaudeService:
@@ -47,10 +74,16 @@ class ClaudeService:
         """
         start_time = time.time()
 
-        # Prepend persona to command if available
+        # Build system prompt from persona and worker docs
         full_command = command
+        system_parts = []
         if PERSONA:
-            full_command = f"{PERSONA}\n\nYou should respond based on this persona and follow the instruction:\n\n{command}"
+            system_parts.append(PERSONA)
+        if WORKER_DOCS:
+            system_parts.append(WORKER_DOCS)
+        if system_parts:
+            system_prompt = "\n\n".join(system_parts)
+            full_command = f"{system_prompt}\n\nYou should respond based on this persona and follow the instructions above:\n\n{command}"
 
         # Build Claude CLI command
         claude_args = [

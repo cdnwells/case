@@ -2,7 +2,6 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import {
   useSpeechRecognitionEvent,
   ExpoSpeechRecognitionModule,
-  AudioEncodingAndroid,
 } from "expo-speech-recognition";
 import { Alert } from "react-native";
 
@@ -138,6 +137,9 @@ export function useVoiceInput({
         requiresOnDeviceRecognition: false,
         addsPunctuation: false,
         contextualStrings: [],
+        androidIntentOptions: {
+          EXTRA_ENABLE_LANGUAGE_DETECTION: true,
+        },
       });
 
       setState("recording");
