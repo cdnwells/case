@@ -158,20 +158,26 @@ export function useVoiceInput({
         return;
       }
 
-      // Check if voice recognition is available
-      const isAvailable = await Voice.isAvailable();
-      if (!isAvailable) {
-        Alert.alert('음성 인식 불가', '이 기기에서는 음성 인식을 사용할 수 없습니다.');
-        return;
-      }
-
+      // Start voice recognition directly
+      // The Voice library will handle availability checks internally
       currentTranscriptRef.current = '';
       await Voice.start(locale);
       setState('recording');
       startSilenceTimer();
-    } catch (error) {
+    } catch (error: any) {
       console.error('Failed to start recording:', error);
-      Alert.alert('오류', '음성 인식을 시작할 수 없습니다.');
+
+      // Provide more specific error messages
+      if (error?.message?.includes('not available') || error?.message?.includes('not supported')) {
+        Alert.alert('음성 인식 불가', '이 기기에서는 음성 인식을 사용할 수 없습니다.');
+      } else if (error?.message?.includes('permission')) {
+        Alert.alert('권한 오류', '마이크 권한이 필요합니다. 설정에서 권한을 확인해주세요.');
+      } else {
+        Alert.alert('오류', '음성 인식을 시작할 수 없습니다. 앱을 다시 시작해주세요.');
+      }
+
+      setState('error');
+      setTimeout(() => setState('idle'), 1000);
     }
   }, [locale, startSilenceTimer, requestMicrophonePermission]);
 
