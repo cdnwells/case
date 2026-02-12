@@ -183,7 +183,7 @@ export function ChatInput({
               backgroundColor: isSpeaking
                 ? "#4A90D9"
                 : hasTTSContent
-                  ? "#1A1A2E"
+                  ? "#e9e9e9"
                   : "transparent",
             },
           ]}
@@ -278,7 +278,7 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     justifyContent: "center",
     alignItems: "center",
-    marginRight: 8,
+    marginLeft: -8,
     marginBottom: 2,
   },
   input: {
@@ -294,6 +294,6 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
     marginLeft: 8,
-    marginBottom: 2,
+    marginBottom: 3,
   },
 });
