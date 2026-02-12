@@ -21,6 +21,8 @@ const MAPPING = {
   'lock.fill': 'lock',
   'arrow.up': 'arrow-upward',
   'touchid': 'fingerprint',
+  'mic.fill': 'mic',
+  'stop.circle.fill': 'stop',
 } as const satisfies IconMapping;
 
 /**
