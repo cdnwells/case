@@ -23,6 +23,8 @@ const MAPPING = {
   'touchid': 'fingerprint',
   'mic.fill': 'mic',
   'stop.circle.fill': 'stop',
+  'speaker.wave.2.fill': 'volume-up',
+  'speaker.slash.fill': 'volume-off',
 } as const satisfies IconMapping;
 
 /**

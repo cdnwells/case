@@ -1,6 +1,7 @@
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useColorScheme } from "@/hooks/use-color-scheme";
 import { useThemeColor } from "@/hooks/use-theme-color";
+import { useTextToSpeech } from "@/hooks/useTextToSpeech";
 import { useVoiceInput } from "@/hooks/useVoiceInput";
 import * as Haptics from "expo-haptics";
 import React, { useState, useRef, useEffect } from "react";
@@ -23,10 +24,17 @@ import Animated, {
 interface ChatInputProps {
   onSend: (message: string) => void;
   disabled?: boolean;
+  lastAssistantMessage?: string;
 }
 
-export function ChatInput({ onSend, disabled }: ChatInputProps) {
+export function ChatInput({
+  onSend,
+  disabled,
+  lastAssistantMessage,
+}: ChatInputProps) {
   const [text, setText] = useState("");
+  const [isVoiceMode, setIsVoiceMode] = useState(false);
+  const hasStartedRecording = useRef(false);
   const textInputRef = useRef<TextInput>(null);
   const colorScheme = useColorScheme();
 
@@ -35,8 +43,20 @@ export function ChatInput({ onSend, disabled }: ChatInputProps) {
   const caseColor = useThemeColor({}, "symbolColor");
   const placeholderColor = colorScheme === "dark" ? "#636366" : "#8e8e93";
 
-  // Voice input hook
+  // TTS hook for left button
   const {
+    isSpeaking,
+    speak,
+    stop: stopSpeaking,
+  } = useTextToSpeech({
+    language: "ko-KR",
+    pitch: 1.0,
+    rate: 1.0,
+  });
+
+  // Voice input hook for right button long-press
+  const {
+    state: voiceState,
     isRecording,
     isProcessing,
     startRecording,
@@ -49,12 +69,34 @@ export function ChatInput({ onSend, disabled }: ChatInputProps) {
         onSend(transcript);
         setText("");
       }
+      setIsVoiceMode(false);
     },
     locale: "ko-KR",
     silenceTimeout: 4000,
   });
 
-  // Animation for recording button
+  // Track when recording actually starts
+  useEffect(() => {
+    if (isRecording) {
+      hasStartedRecording.current = true;
+    }
+  }, [isRecording]);
+
+  // Reset voice mode only after recording has started and then returned to idle
+  useEffect(() => {
+    if (
+      isVoiceMode &&
+      hasStartedRecording.current &&
+      voiceState === "idle" &&
+      !isRecording &&
+      !isProcessing
+    ) {
+      setIsVoiceMode(false);
+      hasStartedRecording.current = false;
+    }
+  }, [isVoiceMode, voiceState, isRecording, isProcessing]);
+
+  // Pulse animation for send button in voice mode
   const scale = useSharedValue(1);
 
   useEffect(() => {
@@ -62,10 +104,10 @@ export function ChatInput({ onSend, disabled }: ChatInputProps) {
       scale.value = withRepeat(
         withSequence(
           withTiming(1.05, { duration: 500 }),
-          withTiming(0.95, { duration: 500 })
+          withTiming(0.95, { duration: 500 }),
         ),
         -1,
-        true
+        true,
       );
     } else {
       scale.value = withTiming(1, { duration: 200 });
@@ -76,15 +118,45 @@ export function ChatInput({ onSend, disabled }: ChatInputProps) {
     transform: [{ scale: scale.value }],
   }));
 
-  const handleStartRecording = async () => {
-    if (Platform.OS !== "web") {
-      await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+  // --- TTS (left button) ---
+  const hasTTSContent = !!lastAssistantMessage;
+
+  const handleTTSToggle = () => {
+    if (isSpeaking) {
+      stopSpeaking();
+    } else if (lastAssistantMessage) {
+      if (Platform.OS !== "web") {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+      }
+      speak(lastAssistantMessage);
     }
+  };
+
+  // --- Send button (right) ---
+  const handleSend = () => {
+    if (!text.trim() || disabled) return;
+    if (Platform.OS !== "web") {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    }
+    onSend(text);
+    setText("");
+  };
+
+  const handleLongPressStart = async () => {
+    if (Platform.OS !== "web") {
+      await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+    }
+    // Stop TTS if speaking
+    if (isSpeaking) {
+      stopSpeaking();
+    }
+    hasStartedRecording.current = false;
+    setIsVoiceMode(true);
     textInputRef.current?.blur();
     await startRecording();
   };
 
-  const handleStopRecording = async () => {
+  const handleStopVoiceInput = async () => {
     if (Platform.OS !== "web") {
       await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     }
@@ -94,16 +166,7 @@ export function ChatInput({ onSend, disabled }: ChatInputProps) {
   const handleTextInputFocus = () => {
     if (isRecording) {
       cancelRecording();
-    }
-  };
-
-  const handleSend = () => {
-    if (text.trim() && !disabled) {
-      if (Platform.OS !== "web") {
-        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-      }
-      onSend(text);
-      setText("");
+      setIsVoiceMode(false);
     }
   };
 
@@ -112,28 +175,34 @@ export function ChatInput({ onSend, disabled }: ChatInputProps) {
   return (
     <View style={[styles.container, { paddingBottom: 8 }]}>
       <View style={[styles.inputContainer, { backgroundColor }]}>
-        {/* Voice input button */}
-        <Animated.View style={animatedStyle}>
-          <TouchableOpacity
-            style={[
-              styles.voiceButton,
-              { backgroundColor: isRecording ? "#ff4444" : "transparent" },
-            ]}
-            onPress={isRecording ? handleStopRecording : handleStartRecording}
-            disabled={disabled || isProcessing}
-            accessibilityLabel={isRecording ? "녹음 중지" : "음성 입력 시작"}
-          >
-            {isProcessing ? (
-              <ActivityIndicator size="small" color={placeholderColor} />
-            ) : (
-              <IconSymbol
-                name={isRecording ? "stop.circle.fill" : "mic.fill"}
-                size={20}
-                color={isRecording ? "#fff" : placeholderColor}
-              />
-            )}
-          </TouchableOpacity>
-        </Animated.View>
+        {/* TTS button (left) */}
+        <TouchableOpacity
+          style={[
+            styles.voiceButton,
+            {
+              backgroundColor: isSpeaking
+                ? "#4A90D9"
+                : hasTTSContent
+                  ? "#1A1A2E"
+                  : "transparent",
+            },
+          ]}
+          onPress={handleTTSToggle}
+          disabled={!hasTTSContent && !isSpeaking}
+          accessibilityLabel={isSpeaking ? "음성 읽기 중지" : "음성으로 읽기"}
+        >
+          <IconSymbol
+            name={isSpeaking ? "speaker.slash.fill" : "speaker.wave.2.fill"}
+            size={20}
+            color={
+              isSpeaking
+                ? "#FFFFFF"
+                : hasTTSContent
+                  ? "#4A90D9"
+                  : placeholderColor
+            }
+          />
+        </TouchableOpacity>
 
         <TextInput
           ref={textInputRef}
@@ -149,20 +218,41 @@ export function ChatInput({ onSend, disabled }: ChatInputProps) {
           onSubmitEditing={handleSend}
           blurOnSubmit={false}
         />
-        <TouchableOpacity
-          style={[
-            styles.sendButton,
-            { backgroundColor: canSend ? caseColor : "transparent" },
-          ]}
-          onPress={handleSend}
-          disabled={!canSend}
-        >
-          <IconSymbol
-            name="arrow.up"
-            size={20}
-            color={canSend ? "#fff" : placeholderColor}
-          />
-        </TouchableOpacity>
+
+        {/* Send / Voice input button (right) */}
+        <Animated.View style={isVoiceMode ? animatedStyle : undefined}>
+          <TouchableOpacity
+            style={[
+              styles.sendButton,
+              {
+                backgroundColor: isVoiceMode
+                  ? "#ff4444"
+                  : canSend
+                    ? caseColor
+                    : "transparent",
+              },
+            ]}
+            onPress={isVoiceMode ? handleStopVoiceInput : handleSend}
+            onLongPress={handleLongPressStart}
+            delayLongPress={3000}
+            disabled={false}
+            accessibilityLabel={
+              isVoiceMode ? "음성 입력 중지" : "메시지 보내기"
+            }
+          >
+            {isProcessing ? (
+              <ActivityIndicator size="small" color="#fff" />
+            ) : (
+              <IconSymbol
+                name={isVoiceMode ? "mic.fill" : "arrow.up"}
+                size={20}
+                color={
+                  isVoiceMode ? "#fff" : canSend ? "#fff" : placeholderColor
+                }
+              />
+            )}
+          </TouchableOpacity>
+        </Animated.View>
       </View>
     </View>
   );
