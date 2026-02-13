@@ -48,6 +48,7 @@ export function ChatInput({
 
   // TTS toggle state and hook
   const [isTTSEnabled, setIsTTSEnabled] = useState(false);
+  const [isTTSButtonToggled, setIsTTSButtonToggled] = useState(false);
   const prevMessageRef = useRef<string | undefined>(undefined);
   const {
     isSpeaking,
@@ -136,10 +137,22 @@ export function ChatInput({
         Math.floor(Math.random() * WAKE_WORD_RESPONSES.length)
       ];
     onLocalMessage?.(response, "assistant");
+
+    setIsTTSButtonToggled(true);
     await speakAsync(response);
 
+    setIsTTSEnabled(true);
+
     await startRecording();
-  }, [isSpeaking, stopSpeaking, speakAsync, startRecording, onLocalMessage]);
+  }, [
+    isSpeaking,
+    isTTSButtonToggled,
+    isTTSEnabled,
+    stopSpeaking,
+    speakAsync,
+    startRecording,
+    onLocalMessage,
+  ]);
 
   useWakeWord({
     enabled: !isVoiceMode && !isRecording && !isProcessing,
@@ -174,9 +187,11 @@ export function ChatInput({
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     }
     if (isTTSEnabled) {
+      setIsTTSButtonToggled(false);
       setIsTTSEnabled(false);
       stopSpeaking();
     } else {
+      setIsTTSButtonToggled(true);
       setIsTTSEnabled(true);
     }
   };
@@ -229,18 +244,20 @@ export function ChatInput({
           style={[
             styles.voiceButton,
             {
-              backgroundColor: isTTSEnabled ? "#4A90D9" : "#e9e9e9",
+              backgroundColor: isTTSButtonToggled ? "#4A90D9" : "#e9e9e9",
             },
           ]}
           onPress={handleTTSToggle}
           accessibilityLabel={
-            isTTSEnabled ? "음성 출력 끄기" : "음성 출력 켜기"
+            isTTSButtonToggled ? "음성 출력 끄기" : "음성 출력 켜기"
           }
         >
           <IconSymbol
-            name={isTTSEnabled ? "speaker.wave.2.fill" : "speaker.slash.fill"}
+            name={
+              isTTSButtonToggled ? "speaker.wave.2.fill" : "speaker.slash.fill"
+            }
             size={20}
-            color={isTTSEnabled ? "#FFFFFF" : placeholderColor}
+            color={isTTSButtonToggled ? "#FFFFFF" : placeholderColor}
           />
         </TouchableOpacity>
 
