@@ -201,6 +201,23 @@ export function useChat() {
     [startPolling],
   );
 
+  const addLocalMessage = useCallback(
+    (content: string, role: "user" | "assistant" = "assistant") => {
+      const message: Message = {
+        id: `local_${Date.now()}`,
+        content,
+        role,
+        timestamp: new Date(),
+        status: "sent",
+      };
+      setState((prev) => ({
+        ...prev,
+        messages: [...prev.messages, message],
+      }));
+    },
+    [],
+  );
+
   const clearMessages = useCallback(() => {
     for (const timer of pollingTimers.current.values()) {
       clearTimeout(timer);
@@ -212,6 +229,7 @@ export function useChat() {
   return {
     ...state,
     sendMessage,
+    addLocalMessage,
     clearMessages,
   };
 }

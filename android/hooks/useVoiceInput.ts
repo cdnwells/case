@@ -73,7 +73,7 @@ export function useVoiceInput({
   useSpeechRecognitionEvent("result", (event) => {
     if (!activeRef.current) return;
     const transcript = event.results[0]?.transcript;
-    if (transcript) {
+    if (transcript && transcript !== currentTranscriptRef.current) {
       currentTranscriptRef.current = transcript;
       lastSpeechTimeRef.current = Date.now();
     }
@@ -94,6 +94,8 @@ export function useVoiceInput({
   // Listen to speech recognition errors
   useSpeechRecognitionEvent("error", (event) => {
     if (!activeRef.current) return;
+    // Ignore "aborted" errors — normal during wake word → voice input handoff
+    if (event.error === "aborted") return;
     console.error("Speech error:", event);
     setState("error");
     setError(event.error || "Voice recognition failed");

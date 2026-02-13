@@ -10,6 +10,7 @@ interface UseTextToSpeechOptions {
 interface UseTextToSpeechReturn {
   isSpeaking: boolean;
   speak: (text: string) => void;
+  speakAsync: (text: string) => Promise<void>;
   stop: () => void;
 }
 
@@ -67,10 +68,29 @@ export function useTextToSpeech({
     [language, pitch, rate],
   );
 
+  const speakAsync = useCallback(
+    (text: string): Promise<void> => {
+      return new Promise((resolve) => {
+        Speech.stop();
+        Speech.speak(text, {
+          language,
+          pitch,
+          rate,
+          voice: voiceIdRef.current,
+          onStart: () => setIsSpeaking(true),
+          onDone: () => { setIsSpeaking(false); resolve(); },
+          onStopped: () => { setIsSpeaking(false); resolve(); },
+          onError: () => { setIsSpeaking(false); resolve(); },
+        });
+      });
+    },
+    [language, pitch, rate],
+  );
+
   const stop = useCallback(() => {
     Speech.stop();
     setIsSpeaking(false);
   }, []);
 
-  return { isSpeaking, speak, stop };
+  return { isSpeaking, speak, speakAsync, stop };
 }

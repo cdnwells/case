@@ -7,7 +7,7 @@ import { ChatInput } from './ChatInput';
 import { MessageList } from './MessageList';
 
 export function ChatScreen() {
-  const { messages, isLoading, sendMessage } = useChat();
+  const { messages, isLoading, sendMessage, addLocalMessage } = useChat();
 
   const lastAssistantMessage = useMemo(() => {
     for (let i = messages.length - 1; i >= 0; i--) {
@@ -23,7 +23,7 @@ export function ChatScreen() {
       <KeyboardProvider>
         <KeyboardStickyView style={styles.keyboardView} offset={{ opened: 50, closed: 0 }}>
           <MessageList messages={messages} isLoading={isLoading} />
-          <ChatInput onSend={sendMessage} disabled={isLoading} lastAssistantMessage={lastAssistantMessage} />
+          <ChatInput onSend={sendMessage} disabled={isLoading} lastAssistantMessage={lastAssistantMessage} onLocalMessage={addLocalMessage} />
         </KeyboardStickyView>
       </KeyboardProvider>
     </ThemedView>

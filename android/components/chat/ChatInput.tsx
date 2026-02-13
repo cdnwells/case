@@ -26,12 +26,14 @@ interface ChatInputProps {
   onSend: (message: string) => void;
   disabled?: boolean;
   lastAssistantMessage?: string;
+  onLocalMessage?: (content: string, role?: "user" | "assistant") => void;
 }
 
 export function ChatInput({
   onSend,
   disabled,
   lastAssistantMessage,
+  onLocalMessage,
 }: ChatInputProps) {
   const [text, setText] = useState("");
   const [isVoiceMode, setIsVoiceMode] = useState(false);
@@ -50,6 +52,7 @@ export function ChatInput({
   const {
     isSpeaking,
     speak,
+    speakAsync,
     stop: stopSpeaking,
   } = useTextToSpeech({
     language: "ko-KR",
@@ -113,6 +116,8 @@ export function ChatInput({
   }, [isVoiceMode, voiceState, isRecording, isProcessing]);
 
   // Wake word detection — always-on listener for "case"
+  const WAKE_WORD_RESPONSES = ["안녕, 인간", "대답해라", "무엇인가?"];
+
   const handleWakeWordDetected = useCallback(async () => {
     if (Platform.OS !== "web") {
       await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
@@ -120,11 +125,21 @@ export function ChatInput({
     if (isSpeaking) {
       stopSpeaking();
     }
+
     hasStartedRecording.current = false;
     setIsVoiceMode(true);
     textInputRef.current?.blur();
+
+    // Speak a random greeting and show it in chat
+    const response =
+      WAKE_WORD_RESPONSES[
+        Math.floor(Math.random() * WAKE_WORD_RESPONSES.length)
+      ];
+    onLocalMessage?.(response, "assistant");
+    await speakAsync(response);
+
     await startRecording();
-  }, [isSpeaking, stopSpeaking, startRecording]);
+  }, [isSpeaking, stopSpeaking, speakAsync, startRecording, onLocalMessage]);
 
   useWakeWord({
     enabled: !isVoiceMode && !isRecording && !isProcessing,
