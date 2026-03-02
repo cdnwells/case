@@ -141,9 +141,9 @@ export function ChatInput({
     setIsTTSButtonToggled(true);
     await speakAsync(response);
 
-    setIsTTSEnabled(true);
-
     await startRecording();
+
+    setIsTTSEnabled(true);
   }, [
     isSpeaking,
     isTTSButtonToggled,
@@ -155,7 +155,7 @@ export function ChatInput({
   ]);
 
   useWakeWord({
-    enabled: !isVoiceMode && !isRecording && !isProcessing,
+    enabled: !isVoiceMode && !isRecording && !isProcessing && !isSpeaking,
     onDetected: handleWakeWordDetected,
   });
 

@@ -3,6 +3,7 @@ import {
   useSpeechRecognitionEvent,
   ExpoSpeechRecognitionModule,
 } from "expo-speech-recognition";
+import * as Speech from "expo-speech";
 
 interface UseWakeWordOptions {
   enabled: boolean;
@@ -88,9 +89,14 @@ export function useWakeWord({
     );
 
     if (detected) {
-      wakeWordDetectedRef.current = true;
-      sessionActiveRef.current = false;
-      ExpoSpeechRecognitionModule.abort();
+      // Ignore if TTS is currently playing — mic is picking up speaker audio
+      Speech.isSpeakingAsync().then((speaking) => {
+        if (speaking) return;
+        if (!sessionActiveRef.current) return;
+        wakeWordDetectedRef.current = true;
+        sessionActiveRef.current = false;
+        ExpoSpeechRecognitionModule.abort();
+      });
     }
   });
 

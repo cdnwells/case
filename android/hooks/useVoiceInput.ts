@@ -36,7 +36,7 @@ export function useVoiceInput({
   const lastSpeechTimeRef = useRef<number | null>(null);
   const currentTranscriptRef = useRef<string>("");
 
-  // Ref for active flag to avoid stale closures in event handlers
+  // Ref to avoid stale closures in event handlers
   const activeRef = useRef(active);
   activeRef.current = active;
 
@@ -94,8 +94,10 @@ export function useVoiceInput({
   // Listen to speech recognition errors
   useSpeechRecognitionEvent("error", (event) => {
     if (!activeRef.current) return;
-    // Ignore "aborted" errors — normal during wake word → voice input handoff
-    if (event.error === "aborted") return;
+    // Ignore non-fatal errors:
+    // "aborted" — normal during wake word → voice input handoff
+    // "no-speech" — user hasn't spoken yet, not a real error
+    if (event.error === "aborted" || event.error === "no-speech") return;
     console.error("Speech error:", event);
     setState("error");
     setError(event.error || "Voice recognition failed");
