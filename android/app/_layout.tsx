@@ -1,15 +1,13 @@
 import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { useKeepAwake } from 'expo-keep-awake';
 import 'react-native-reanimated';
 
 import { useColorScheme } from '@/hooks/use-color-scheme';
-import { useBackgroundService } from '@/hooks/useBackgroundService';
+import { useBatteryOptimization } from '@/hooks/useBatteryOptimization';
 
 export default function RootLayout() {
-  useKeepAwake();
-  useBackgroundService();
+  useBatteryOptimization();
   const colorScheme = useColorScheme();
 
   return (
