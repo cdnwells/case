@@ -8,6 +8,9 @@
     "scheme": "caseandroid",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
+    "updates": {
+      "enabled": true
+    },
     "splash": {
       "image": "./assets/images/splash-icon.png",
       "resizeMode": "contain",
@@ -15,7 +18,11 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.cdnwell.caseandroid"
+      "bundleIdentifier": "com.cdnwell.caseandroid",
+      "infoPlist": {
+        "NSSpeechRecognitionUsageDescription": "이 앱이 음성을 텍스트로 변환하려면 음성 인식 권한이 필요합니다.",
+        "NSMicrophoneUsageDescription": "이 앱이 음성 명령을 인식하려면 마이크 접근 권한이 필요합니다."
+      }
     },
     "android": {
       "adaptiveIcon": {
@@ -30,7 +37,8 @@
         "USE_BIOMETRIC",
         "USE_FINGERPRINT",
         "android.permission.USE_BIOMETRIC",
-        "android.permission.USE_FINGERPRINT"
+        "android.permission.USE_FINGERPRINT",
+        "android.permission.RECORD_AUDIO"
       ]
     },
     "web": {
@@ -60,6 +68,12 @@
     ],
     "experiments": {
       "typedRoutes": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "be1b8480-b0cf-402f-92be-5d95f41588cc"
+      }
     }
   }
 }

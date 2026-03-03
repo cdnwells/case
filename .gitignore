@@ -28,3 +28,6 @@ Thumbs.db
 
 # Build
 *.log
+
+# package-lock
+package-lock.json
