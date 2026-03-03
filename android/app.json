@@ -38,7 +38,10 @@
         "USE_FINGERPRINT",
         "android.permission.USE_BIOMETRIC",
         "android.permission.USE_FINGERPRINT",
-        "android.permission.RECORD_AUDIO"
+        "android.permission.RECORD_AUDIO",
+        "android.permission.FOREGROUND_SERVICE",
+        "android.permission.FOREGROUND_SERVICE_MICROPHONE",
+        "android.permission.WAKE_LOCK"
       ]
     },
     "web": {
