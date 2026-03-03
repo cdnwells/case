@@ -4,10 +4,8 @@ import { StatusBar } from 'expo-status-bar';
 import 'react-native-reanimated';
 
 import { useColorScheme } from '@/hooks/use-color-scheme';
-import { useBatteryOptimization } from '@/hooks/useBatteryOptimization';
 
 export default function RootLayout() {
-  useBatteryOptimization();
   const colorScheme = useColorScheme();
 
   return (

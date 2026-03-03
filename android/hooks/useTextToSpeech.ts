@@ -54,12 +54,12 @@ export function useTextToSpeech({
   const speak = useCallback(
     (text: string) => {
       Speech.stop();
+      setIsSpeaking(true);
       Speech.speak(text, {
         language,
         pitch,
         rate,
         voice: voiceIdRef.current,
-        onStart: () => setIsSpeaking(true),
         onDone: () => setIsSpeaking(false),
         onStopped: () => setIsSpeaking(false),
         onError: () => setIsSpeaking(false),
@@ -72,12 +72,12 @@ export function useTextToSpeech({
     (text: string): Promise<void> => {
       return new Promise((resolve) => {
         Speech.stop();
+        setIsSpeaking(true);
         Speech.speak(text, {
           language,
           pitch,
           rate,
           voice: voiceIdRef.current,
-          onStart: () => setIsSpeaking(true),
           onDone: () => { setIsSpeaking(false); resolve(); },
           onStopped: () => { setIsSpeaking(false); resolve(); },
           onError: () => { setIsSpeaking(false); resolve(); },

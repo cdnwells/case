@@ -1,0 +1,11 @@
+# venv
+venv/
+
+# python
+__pycache__/
+
+# env
+.env*
+
+# runtime data
+data/

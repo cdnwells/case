@@ -74,7 +74,9 @@ def _try_parse_json(content: str) -> dict | None:
     return None
 
 
-def parse_message_content(content: str, user_request: str = None) -> MessageContent:
+def parse_message_content(
+    content: str, user_request: str = None
+) -> tuple[MessageContent, list[str] | None]:
     """
     Parse GPT response as structured JSON.
 
@@ -84,15 +86,27 @@ def parse_message_content(content: str, user_request: str = None) -> MessageCont
         "action": {
             "type": "execute",
             "instruction": "natural language task description"
-        }
+        },
+        "memory": ["fact1", "fact2"]
     }
+
+    Returns:
+        tuple of (MessageContent, extracted_memory or None)
     """
     commands: List[ShellCommand] = []
+    extracted_memory = None
 
     parsed = _try_parse_json(content)
 
     if parsed and isinstance(parsed, dict):
         display_text = parsed.get("message", content)
+
+        # Extract memory if present
+        memory = parsed.get("memory")
+        if memory and isinstance(memory, list):
+            extracted_memory = [str(m) for m in memory if m]
+            if not extracted_memory:
+                extracted_memory = None
 
         action = parsed.get("action")
         if action and isinstance(action, dict) and action.get("type") == "execute":
@@ -111,7 +125,10 @@ def parse_message_content(content: str, user_request: str = None) -> MessageCont
         logger.warning("GPT response was not valid JSON, using raw text as message")
         display_text = content.strip()
 
-    return MessageContent(
-        text=display_text,
-        commands=commands if commands else None,
+    return (
+        MessageContent(
+            text=display_text,
+            commands=commands if commands else None,
+        ),
+        extracted_memory,
     )

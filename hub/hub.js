@@ -7,6 +7,7 @@ const config = {
   port: parseInt(process.env.PORT || '5000', 10),
   pythonWorkerUrl: process.env.PYTHON_WORKER_URL || 'http://localhost:8000',
   claudeWorkerUrl: process.env.CLAUDE_WORKER_URL || 'http://localhost:8003',
+  contextWorkerUrl: process.env.CONTEXT_WORKER_URL || 'http://localhost:8001',
   forwardTimeout: parseInt(process.env.FORWARD_TIMEOUT_MS || '120000', 10),
 }
 
@@ -35,6 +36,9 @@ setInterval(() => {
 function selectWorkerUrl(path) {
   if (path.startsWith('/command')) {
     return config.claudeWorkerUrl
+  }
+  if (path.startsWith('/context')) {
+    return config.contextWorkerUrl
   }
   return config.pythonWorkerUrl
 }
@@ -185,6 +189,84 @@ fastify.post('/command', async (request, reply) => {
   // Execute in background
   const claudeUrl = `${config.claudeWorkerUrl}/command`
   executeCommandAsync(claudeUrl, body, headers, request.log)
+})
+
+// Chat endpoint with context orchestration
+fastify.post('/chat', async (request, reply) => {
+  const { headers, body } = request
+  request.log.info({ body }, 'Chat received - loading context')
+
+  // Step 1: Load context from Context Worker
+  let context = ''
+  try {
+    const ctxResponse = await forwardToWorker({
+      method: 'GET',
+      path: '/context',
+      headers: {},
+      workerUrl: config.contextWorkerUrl,
+    }, request.log)
+
+    if (ctxResponse.status === 200 && ctxResponse.data?.context) {
+      context = ctxResponse.data.context
+    }
+  } catch (err) {
+    // Context loading failure is non-fatal; proceed without context
+    request.log.warn({ error: err.message }, 'Failed to load context, proceeding without')
+  }
+
+  // Step 2: Inject context into request body and forward to GPT Worker
+  const enrichedBody = { ...body }
+  if (context) {
+    enrichedBody.context = context
+  }
+
+  try {
+    const gptResponse = await forwardToWorker({
+      method: 'POST',
+      path: '/chat',
+      headers,
+      body: enrichedBody,
+      workerUrl: config.pythonWorkerUrl,
+    }, request.log)
+
+    const responseData = gptResponse.data
+
+    // Step 3: Extract and save memory from GPT response
+    if (responseData?.memory && Array.isArray(responseData.memory) && responseData.memory.length > 0) {
+      // Save memories to context worker (non-fatal)
+      try {
+        await forwardToWorker({
+          method: 'POST',
+          path: '/context/memories',
+          headers: { 'content-type': 'application/json' },
+          body: { memories: responseData.memory, source: 'gpt' },
+          workerUrl: config.contextWorkerUrl,
+        }, request.log)
+        request.log.info({ count: responseData.memory.length }, 'Memories saved')
+      } catch (err) {
+        request.log.warn({ error: err.message }, 'Failed to save memories')
+      }
+
+      // Strip memory field from response before returning to Android
+      delete responseData.memory
+    }
+
+    reply.code(gptResponse.status)
+    if (gptResponse.contentType) {
+      reply.header('content-type', gptResponse.contentType)
+    }
+    return responseData
+  } catch (err) {
+    request.log.error({ error: err.message }, 'Chat forward failed')
+
+    if (err.name === 'TimeoutError') {
+      reply.code(504)
+      return { error: 'Hub Timeout', message: 'Worker did not respond in time' }
+    }
+
+    reply.code(502)
+    return { error: 'Bad Hub', message: 'Failed to reach worker' }
+  }
 })
 
 // Hub catch-all (reverse proxy)

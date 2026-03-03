@@ -34,9 +34,14 @@ class OpenAIService:
         self,
         user_content: str,
         conversation_history: Optional[List[ChatMessage]] = None,
+        context: Optional[str] = None,
     ) -> str:
-        """Create a chat response with system prompt"""
-        messages = [ChatMessage(role="system", content=SYSTEM_PROMPT)]
+        """Create a chat response with system prompt and optional context"""
+        system_content = SYSTEM_PROMPT
+        if context:
+            system_content = f"{SYSTEM_PROMPT}\n\n{context}"
+
+        messages = [ChatMessage(role="system", content=system_content)]
 
         if conversation_history:
             messages.extend(conversation_history)

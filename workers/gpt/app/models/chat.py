@@ -10,6 +10,9 @@ class SendMessageRequest(BaseModel):
     conversationId: Optional[str] = Field(
         None, description="Conversation context ID"
     )
+    context: Optional[str] = Field(
+        None, description="Injected context from memory system"
+    )
 
 
 class SendMessageResponse(BaseModel):

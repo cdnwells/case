@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-@router.post("", response_model=SendMessageResponse, response_model_by_alias=True)
+@router.post("")
 async def send_message(
     request: SendMessageRequest,
 ):
@@ -25,14 +25,17 @@ async def send_message(
 
     logger.info(request)
 
-    # Get response from OpenAI
+    # Get response from OpenAI (with context if available)
     response_content = await openai_service.create_chat_response(
         user_content=request.content,
-        conversation_history=None,  # TODO: Add conversation history support
+        conversation_history=None,
+        context=request.context,
     )
 
     # Parse response and pass user request for action detection
-    parsed_content = parse_message_content(response_content, user_request=request.content)
+    parsed_content, extracted_memory = parse_message_content(
+        response_content, user_request=request.content
+    )
 
     # Send commands to hub if any were extracted
     commands_sent = False
@@ -60,4 +63,10 @@ async def send_message(
         execution_id=execution_id,
     )
 
-    return SendMessageResponse(message=message)
+    response_data = SendMessageResponse(message=message).model_dump(by_alias=True)
+
+    # Attach extracted memory to response for hub to save
+    if extracted_memory:
+        response_data["memory"] = extracted_memory
+
+    return response_data
