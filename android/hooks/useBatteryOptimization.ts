@@ -1,73 +1,58 @@
 import { useCallback, useEffect, useState } from "react";
-import { AppState, NativeModules, Platform } from "react-native";
-import * as IntentLauncher from "expo-intent-launcher";
-
-const PACKAGE_NAME =
-  NativeModules.AndroidConstants?.packageName ?? "com.cdnwell.caseandroid";
-
-async function requestBatteryExemption(): Promise<boolean> {
-  try {
-    const result = await IntentLauncher.startActivityAsync(
-      "android.settings.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS",
-      { data: `package:${PACKAGE_NAME}` },
-    );
-    // resultCode -1 = RESULT_OK (user allowed)
-    return result.resultCode === -1;
-  } catch {
-    try {
-      // Fallback: open the battery optimization settings list
-      await IntentLauncher.startActivityAsync(
-        "android.settings.IGNORE_BATTERY_OPTIMIZATION_SETTINGS",
-      );
-      // Can't determine result from the list view
-      return false;
-    } catch {
-      return false;
-    }
-  }
-}
+import { AppState, Platform } from "react-native";
+import {
+  isIgnoringBatteryOptimizations,
+  requestIgnoreBatteryOptimizations,
+} from "../modules/battery-optimization";
 
 interface UseBatteryOptimizationReturn {
   isExempted: boolean;
   isChecking: boolean;
-  request: () => Promise<void>;
+  request: () => void;
 }
 
 export function useBatteryOptimization(): UseBatteryOptimizationReturn {
   const [isExempted, setIsExempted] = useState(Platform.OS !== "android");
   const [isChecking, setIsChecking] = useState(Platform.OS === "android");
 
-  const checkAndRequest = useCallback(async () => {
-    if (Platform.OS !== "android") {
-      setIsExempted(true);
-      setIsChecking(false);
-      return;
+  const checkStatus = useCallback(() => {
+    if (Platform.OS !== "android") return;
+    try {
+      const exempted = isIgnoringBatteryOptimizations();
+      setIsExempted(exempted);
+    } catch {
+      setIsExempted(false);
     }
-
-    setIsChecking(true);
-    const granted = await requestBatteryExemption();
-    setIsExempted(granted);
     setIsChecking(false);
   }, []);
 
-  // Auto-request on mount
+  const request = useCallback(() => {
+    if (Platform.OS !== "android") return;
+    try {
+      requestIgnoreBatteryOptimizations();
+    } catch {
+      // Intent failed — status will be re-checked on foreground
+    }
+  }, []);
+
+  // Check status on mount
   useEffect(() => {
     if (Platform.OS !== "android") return;
-    checkAndRequest();
-  }, [checkAndRequest]);
+    checkStatus();
+  }, [checkStatus]);
 
-  // Re-check when app comes back to foreground (in case user changed it in settings)
+  // Re-check when app comes back to foreground (after user interacts with the system dialog)
   useEffect(() => {
     if (Platform.OS !== "android") return;
 
     const subscription = AppState.addEventListener("change", (state) => {
-      if (state === "active" && !isExempted) {
-        checkAndRequest();
+      if (state === "active") {
+        checkStatus();
       }
     });
 
     return () => subscription.remove();
-  }, [isExempted, checkAndRequest]);
+  }, [checkStatus]);
 
-  return { isExempted, isChecking, request: checkAndRequest };
+  return { isExempted, isChecking, request };
 }
