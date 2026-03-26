@@ -2,6 +2,8 @@
 
 - You should commit all changes in one commit and in that commit message you should separate relevant contents.
 - Don't test the android with a virtual machine. I'll test it manually.
+- Do not start any dev server sessions (e.g., `npx expo start`, `npm start`, etc.) without explicit permission from the user.
+- Use `pnpm` as the primary package manager. Prefer `pnpm` over `npm` or `yarn` for all install/run commands.
 - I want you to say all things in English.
 
 # Architecture: Hub-and-Spoke

@@ -279,76 +279,77 @@ export function ChatInput({
         </Animated.View>
         <View style={[styles.inputContainer, { backgroundColor }]}>
           {/* TTS toggle button (left) */}
-        <TouchableOpacity
-          style={[
-            styles.voiceButton,
-            {
-              backgroundColor: isTTSButtonToggled ? "#4A90D9" : "#e9e9e9",
-            },
-          ]}
-          onPress={handleTTSToggle}
-          accessibilityLabel={
-            isTTSButtonToggled ? "음성 출력 끄기" : "음성 출력 켜기"
-          }
-        >
-          <IconSymbol
-            name={
-              isTTSButtonToggled ? "speaker.wave.2.fill" : "speaker.slash.fill"
-            }
-            size={20}
-            color={isTTSButtonToggled ? "#FFFFFF" : placeholderColor}
-          />
-        </TouchableOpacity>
-
-        <TextInput
-          ref={textInputRef}
-          style={[styles.input, { color: textColor }]}
-          value={text}
-          onChangeText={setText}
-          onFocus={handleTextInputFocus}
-          placeholder="임무를 말해주세요."
-          placeholderTextColor={placeholderColor}
-          multiline
-          maxLength={4000}
-          editable={!disabled && !isRecording && !isProcessing}
-          onSubmitEditing={handleSend}
-          blurOnSubmit={false}
-        />
-
-        {/* Send / Voice input button (right) */}
-        <Animated.View style={isVoiceMode ? animatedStyle : undefined}>
           <TouchableOpacity
             style={[
-              styles.sendButton,
+              styles.voiceButton,
               {
-                backgroundColor: isVoiceMode
-                  ? "gray"
-                  : canSend
-                    ? caseColor
-                    : "transparent",
+                backgroundColor: isTTSButtonToggled ? "#4A90D9" : "#e9e9e9",
               },
             ]}
-            onPress={isVoiceMode ? handleStopVoiceInput : handleSend}
-            onLongPress={handleLongPressStart}
-            delayLongPress={3000}
-            disabled={false}
+            onPress={handleTTSToggle}
             accessibilityLabel={
-              isVoiceMode ? "음성 입력 중지" : "메시지 보내기"
+              isTTSButtonToggled ? "음성 출력 끄기" : "음성 출력 켜기"
             }
           >
-            {isProcessing ? (
-              <ActivityIndicator size="small" color="#fff" />
-            ) : (
-              <IconSymbol
-                name={isVoiceMode ? "mic.fill" : "arrow.up"}
-                size={20}
-                color={
-                  isVoiceMode ? "#fff" : canSend ? "#fff" : placeholderColor
-                }
-              />
-            )}
+            <IconSymbol
+              name={
+                isTTSButtonToggled
+                  ? "speaker.wave.2.fill"
+                  : "speaker.slash.fill"
+              }
+              size={20}
+              color={isTTSButtonToggled ? "#FFFFFF" : placeholderColor}
+            />
           </TouchableOpacity>
-        </Animated.View>
+
+          <TextInput
+            ref={textInputRef}
+            style={[styles.input, { color: textColor }]}
+            value={text}
+            onChangeText={setText}
+            onFocus={handleTextInputFocus}
+            placeholderTextColor={placeholderColor}
+            multiline
+            maxLength={4000}
+            editable={!disabled && !isRecording && !isProcessing}
+            onSubmitEditing={handleSend}
+            blurOnSubmit={false}
+          />
+
+          {/* Send / Voice input button (right) */}
+          <Animated.View style={isVoiceMode ? animatedStyle : undefined}>
+            <TouchableOpacity
+              style={[
+                styles.sendButton,
+                {
+                  backgroundColor: isVoiceMode
+                    ? "gray"
+                    : canSend
+                      ? caseColor
+                      : "transparent",
+                },
+              ]}
+              onPress={isVoiceMode ? handleStopVoiceInput : handleSend}
+              onLongPress={handleLongPressStart}
+              delayLongPress={3000}
+              disabled={false}
+              accessibilityLabel={
+                isVoiceMode ? "음성 입력 중지" : "메시지 보내기"
+              }
+            >
+              {isProcessing ? (
+                <ActivityIndicator size="small" color="#fff" />
+              ) : (
+                <IconSymbol
+                  name={isVoiceMode ? "mic.fill" : "arrow.up"}
+                  size={20}
+                  color={
+                    isVoiceMode ? "#fff" : canSend ? "#fff" : placeholderColor
+                  }
+                />
+              )}
+            </TouchableOpacity>
+          </Animated.View>
         </View>
       </View>
     </View>
