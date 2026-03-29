@@ -19,7 +19,7 @@ class BatteryOptimizationModule : Module() {
         }
 
         Function("requestIgnoreBatteryOptimizations") {
-            val context = appContext.reactContext ?: return@Function
+            val context = appContext.reactContext ?: return@Function null
             val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
                 data = Uri.parse("package:${context.packageName}")
             }

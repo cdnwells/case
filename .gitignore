@@ -26,6 +26,12 @@ venv/
 .DS_Store
 Thumbs.db
 
+# Gradle
+.gradle/
+
+# Android build
+**/android/build/
+
 # Build
 *.log
 

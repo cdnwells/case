@@ -20,9 +20,7 @@ import Animated, {
   withRepeat,
   withSequence,
   withTiming,
-  Easing,
 } from "react-native-reanimated";
-import { LinearGradient } from "expo-linear-gradient";
 
 interface ChatInputProps {
   onSend: (message: string) => void;
@@ -180,28 +178,6 @@ export function ChatInput({
     transform: [{ scale: scale.value }],
   }));
 
-  // Rainbow glow animation for wake word detection
-  const glowOpacity = useSharedValue(0);
-  const glowProgress = useSharedValue(0);
-
-  useEffect(() => {
-    if (isVoiceMode) {
-      glowOpacity.value = withTiming(1, { duration: 300 });
-      glowProgress.value = withRepeat(
-        withTiming(1, { duration: 1500, easing: Easing.linear }),
-        -1,
-        false,
-      );
-    } else {
-      glowOpacity.value = withTiming(0, { duration: 400 });
-      glowProgress.value = 0;
-    }
-  }, [isVoiceMode]);
-
-  const glowAnimatedStyle = useAnimatedStyle(() => ({
-    opacity: glowOpacity.value,
-    transform: [{ rotate: `${glowProgress.value * 360}deg` }],
-  }));
 
   // --- TTS toggle (left button) ---
   const handleTTSToggle = () => {
@@ -260,23 +236,6 @@ export function ChatInput({
 
   return (
     <View style={[styles.container, { paddingBottom: 8 }]}>
-      <View style={styles.glowWrapper}>
-        <Animated.View style={[styles.glowRotator, glowAnimatedStyle]}>
-          <LinearGradient
-            colors={[
-              "#FF0000",
-              "#FF7F00",
-              "#FFFF00",
-              "#00FF00",
-              "#0000FF",
-              "#8B00FF",
-              "#FF0000",
-            ]}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={styles.glowGradient}
-          />
-        </Animated.View>
         <View style={[styles.inputContainer, { backgroundColor }]}>
           {/* TTS toggle button (left) */}
           <TouchableOpacity
@@ -351,7 +310,6 @@ export function ChatInput({
             </TouchableOpacity>
           </Animated.View>
         </View>
-      </View>
     </View>
   );
 }
@@ -360,22 +318,6 @@ const styles = StyleSheet.create({
   container: {
     paddingHorizontal: 12,
     paddingTop: 8,
-  },
-  glowWrapper: {
-    position: "relative",
-    borderRadius: 24,
-  },
-  glowRotator: {
-    position: "absolute",
-    top: -3,
-    left: -3,
-    right: -3,
-    bottom: -3,
-    borderRadius: 27,
-    overflow: "hidden",
-  },
-  glowGradient: {
-    flex: 1,
   },
   inputContainer: {
     flexDirection: "row",
