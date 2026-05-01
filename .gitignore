@@ -34,6 +34,7 @@ Thumbs.db
 
 # Build
 *.log
+.logs/
 
 # package-lock
 package-lock.json

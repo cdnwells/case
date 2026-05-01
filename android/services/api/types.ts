@@ -8,5 +8,5 @@ export interface IChatService {
 
 export const API_BASE_URL =
   Platform.OS === "android"
-    ? "http://192.168.0.21:5000"
+    ? "http://192.168.0.18:5000"
     : "http://localhost:5000";

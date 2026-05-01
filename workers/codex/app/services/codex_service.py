@@ -91,8 +91,6 @@ class CodexService:
             self.codex_path,
             "exec",
             "--dangerously-bypass-approvals-and-sandbox",
-            "--ask-for-approval",
-            "never",
             "--sandbox",
             "danger-full-access",
             "--skip-git-repo-check",
