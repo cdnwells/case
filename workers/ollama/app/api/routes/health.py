@@ -18,8 +18,13 @@ async def health_check():
     """
     ollama_status = await ollama_service.check_health()
 
+    is_ready = (
+        ollama_status.get("ollama_connected")
+        and ollama_status.get("model_available")
+    )
+
     return {
-        "status": "healthy" if ollama_status.get("ollama_connected") else "degraded",
+        "status": "healthy" if is_ready else "degraded",
         "worker": "ollama",
         "ollama": ollama_status,
     }

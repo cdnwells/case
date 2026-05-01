@@ -74,11 +74,21 @@ case/
 
 ## 서버 실행
 
+처음 실행 전에는 Hub와 Python 워커 의존성을 설치합니다.
+
+```bash
+cd hub && pnpm install && cd ..
+python3 -m venv .venv
+.venv/bin/pip install -r workers/gpt/requirements.txt -r workers/context/requirements.txt -r workers/codex/requirements.txt -r workers/ollama/requirements.txt -r workers/ssh/requirements.txt
+```
+
 루트에서 `run_servers.sh`를 실행하면 Hub와 기본 워커(GPT, Context, Codex, Ollama, SSH)를 함께 시작합니다. `/command`는 기본적으로 Codex 워커로 라우팅됩니다.
 
 ```bash
 ./run_servers.sh
 ```
+
+루트 `.venv`가 있으면 실행 스크립트가 자동으로 `.venv/bin/python`을 사용합니다. Ollama 워커가 실제 채팅을 처리하려면 `OLLAMA_MODEL`에 맞는 모델이 로컬 Ollama에 설치되어 있어야 하고, SSH 워커가 명령을 실행하려면 `workers/ssh/.env`에 접속 정보가 필요합니다.
 
 자주 쓰는 옵션:
 

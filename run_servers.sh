@@ -13,8 +13,15 @@ DRY_RUN=0
 HOST="${HOST:-0.0.0.0}"
 DEBUG="${DEBUG:-false}"
 LOG_DIR="${LOG_DIR:-$ROOT_DIR/.logs}"
-PYTHON_BIN="${PYTHON_BIN:-python3}"
 NODE_BIN="${NODE_BIN:-node}"
+
+if [[ -z "${PYTHON_BIN:-}" ]]; then
+  if [[ -x "$ROOT_DIR/.venv/bin/python" ]]; then
+    PYTHON_BIN="$ROOT_DIR/.venv/bin/python"
+  else
+    PYTHON_BIN="python3"
+  fi
+fi
 
 HUB_PORT="${HUB_PORT:-5000}"
 GPT_PORT="${GPT_PORT:-8000}"
@@ -45,7 +52,7 @@ Options:
   --claude-port PORT          Claude worker port (default: 8003)
   --codex-port PORT           Codex worker port (default: 8004)
   --ssh-port PORT             SSH worker port (default: 8005)
-  --python-bin PATH           Python executable (default: python3)
+  --python-bin PATH           Python executable (default: .venv/bin/python if present, else python3)
   --node-bin PATH             Node executable (default: node)
   --log-dir DIR               Directory for server logs (default: .logs)
   --dry-run                   Print commands without starting servers
