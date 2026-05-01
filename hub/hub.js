@@ -6,13 +6,13 @@ import crypto from 'crypto'
 const config = {
   port: parseInt(process.env.PORT || '5000', 10),
   pythonWorkerUrl: process.env.PYTHON_WORKER_URL || 'http://localhost:8000',
+  chatWorkerUrl: process.env.CHAT_WORKER_URL || process.env.CODEX_WORKER_URL || 'http://localhost:8004',
   commandWorkerUrl: process.env.COMMAND_WORKER_URL
     || process.env.CODEX_WORKER_URL
     || process.env.CLAUDE_WORKER_URL
     || 'http://localhost:8004',
   commandWorkerName: process.env.COMMAND_WORKER_NAME
     || (process.env.COMMAND_WORKER_URL ? 'custom' : (process.env.CLAUDE_WORKER_URL && !process.env.CODEX_WORKER_URL ? 'claude' : 'codex')),
-  claudeWorkerUrl: process.env.CLAUDE_WORKER_URL || 'http://localhost:8003',
   contextWorkerUrl: process.env.CONTEXT_WORKER_URL || 'http://localhost:8001',
   forwardTimeout: parseInt(process.env.FORWARD_TIMEOUT_MS || '120000', 10),
 }
@@ -220,24 +220,24 @@ fastify.post('/chat', async (request, reply) => {
     request.log.warn({ error: err.message }, 'Failed to load context, proceeding without')
   }
 
-  // Step 2: Inject context into request body and forward to GPT Worker
+  // Step 2: Inject context into request body and forward to chat worker
   const enrichedBody = { ...body }
   if (context) {
     enrichedBody.context = context
   }
 
   try {
-    const gptResponse = await forwardToWorker({
+    const chatResponse = await forwardToWorker({
       method: 'POST',
       path: '/chat',
       headers,
       body: enrichedBody,
-      workerUrl: config.pythonWorkerUrl,
+      workerUrl: config.chatWorkerUrl,
     }, request.log)
 
-    const responseData = gptResponse.data
+    const responseData = chatResponse.data
 
-    // Step 3: Extract and save memory from GPT response
+    // Step 3: Extract and save memory from chat response
     if (responseData?.memory && Array.isArray(responseData.memory) && responseData.memory.length > 0) {
       // Save memories to context worker (non-fatal)
       try {
@@ -257,9 +257,9 @@ fastify.post('/chat', async (request, reply) => {
       delete responseData.memory
     }
 
-    reply.code(gptResponse.status)
-    if (gptResponse.contentType) {
-      reply.header('content-type', gptResponse.contentType)
+    reply.code(chatResponse.status)
+    if (chatResponse.contentType) {
+      reply.header('content-type', chatResponse.contentType)
     }
     return responseData
   } catch (err) {
@@ -318,6 +318,7 @@ const start = async () => {
     fastify.log.info({
       pythonWorkerUrl: config.pythonWorkerUrl,
       contextWorkerUrl: config.contextWorkerUrl,
+      chatWorkerUrl: config.chatWorkerUrl,
       commandWorkerUrl: config.commandWorkerUrl,
       commandWorkerName: config.commandWorkerName,
     }, 'Hub started')

@@ -6,7 +6,7 @@ import uuid
 import logging
 
 from app.config import settings
-from app.api.routes import command, health
+from app.api.routes import chat, command, health
 from app.models.command import ErrorResponse
 
 logging.basicConfig(level=logging.INFO)
@@ -62,6 +62,7 @@ async def global_exception_handler(request: Request, exc: Exception):
 
 
 app.include_router(health.router, tags=["health"])
+app.include_router(chat.router, prefix="/chat", tags=["chat"])
 app.include_router(command.router, tags=["command"])
 
 

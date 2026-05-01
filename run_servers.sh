@@ -473,6 +473,7 @@ if [[ "$START_HUB" -eq 1 ]]; then
     CONTEXT_WORKER_URL="http://localhost:$CONTEXT_PORT" \
     CODEX_WORKER_URL="http://localhost:$CODEX_PORT" \
     CLAUDE_WORKER_URL="http://localhost:$CLAUDE_PORT" \
+    CHAT_WORKER_URL="http://localhost:$CODEX_PORT" \
     COMMAND_WORKER_URL="$COMMAND_WORKER_URL" \
     COMMAND_WORKER_NAME="$EXECUTOR" \
     "$NODE_BIN" hub.js
