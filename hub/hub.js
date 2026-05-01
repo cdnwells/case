@@ -6,6 +6,12 @@ import crypto from 'crypto'
 const config = {
   port: parseInt(process.env.PORT || '5000', 10),
   pythonWorkerUrl: process.env.PYTHON_WORKER_URL || 'http://localhost:8000',
+  commandWorkerUrl: process.env.COMMAND_WORKER_URL
+    || process.env.CODEX_WORKER_URL
+    || process.env.CLAUDE_WORKER_URL
+    || 'http://localhost:8004',
+  commandWorkerName: process.env.COMMAND_WORKER_NAME
+    || (process.env.COMMAND_WORKER_URL ? 'custom' : (process.env.CLAUDE_WORKER_URL && !process.env.CODEX_WORKER_URL ? 'claude' : 'codex')),
   claudeWorkerUrl: process.env.CLAUDE_WORKER_URL || 'http://localhost:8003',
   contextWorkerUrl: process.env.CONTEXT_WORKER_URL || 'http://localhost:8001',
   forwardTimeout: parseInt(process.env.FORWARD_TIMEOUT_MS || '120000', 10),
@@ -35,7 +41,7 @@ setInterval(() => {
 // Worker selection based on request path
 function selectWorkerUrl(path) {
   if (path.startsWith('/command')) {
-    return config.claudeWorkerUrl
+    return config.commandWorkerUrl
   }
   if (path.startsWith('/context')) {
     return config.contextWorkerUrl
@@ -187,8 +193,8 @@ fastify.post('/command', async (request, reply) => {
   })
 
   // Execute in background
-  const claudeUrl = `${config.claudeWorkerUrl}/command`
-  executeCommandAsync(claudeUrl, body, headers, request.log)
+  const commandUrl = `${config.commandWorkerUrl}/command`
+  executeCommandAsync(commandUrl, body, headers, request.log)
 })
 
 // Chat endpoint with context orchestration
@@ -309,7 +315,12 @@ process.on('SIGINT', () => shutdown('SIGINT'))
 const start = async () => {
   try {
     await fastify.listen({ port: config.port, host: '0.0.0.0' })
-    fastify.log.info({ pythonWorkerUrl: config.pythonWorkerUrl }, 'Hub started')
+    fastify.log.info({
+      pythonWorkerUrl: config.pythonWorkerUrl,
+      contextWorkerUrl: config.contextWorkerUrl,
+      commandWorkerUrl: config.commandWorkerUrl,
+      commandWorkerName: config.commandWorkerName,
+    }, 'Hub started')
   } catch (err) {
     fastify.log.error(err)
     process.exit(1)

@@ -17,7 +17,7 @@ async def send_commands_to_hub(
     commands: List[ShellCommand],
 ) -> Tuple[bool, Optional[str]]:
     """
-    Send conversational instructions to the hub for Claude Code execution.
+    Send conversational instructions to the hub for command worker execution.
 
     Generates an executionId so the hub can track and store results,
     and Android can poll for the outcome.

@@ -24,8 +24,8 @@
   ┌────┘  │  └────┐
   ▼       ▼       ▼
 ┌─────┐ ┌─────┐ ┌──────┐
-│ GPT │ │ Ctx │ │Claude│  Python / FastAPI
-│:8000│ │:8001│ │:8003 │
+│ GPT │ │ Ctx │ │Codex │  Python / FastAPI
+│:8000│ │:8001│ │:8004 │
 └─────┘ └─────┘ └──────┘
 ```
 
@@ -33,9 +33,10 @@
 | ------- | ---- | ------------------------------------- |
 | GPT     | 8000 | OpenAI GPT 기반 채팅 처리             |
 | Context | 8001 | 대화 컨텍스트 및 메모리 저장/조회     |
-| Claude  | 8003 | Claude Code CLI를 통한 로컬 명령 실행 |
-| Ollama  | —    | 로컬 LLM(Ollama) 기반 채팅            |
-| SSH     | —    | 원격 서버 명령 실행                   |
+| Ollama  | 8002 | 로컬 LLM(Ollama) 기반 채팅            |
+| Claude  | 8003 | Claude Code CLI 기반 레거시 명령 실행 |
+| Codex   | 8004 | Codex CLI를 통한 로컬 명령 실행       |
+| SSH     | 8005 | 원격 서버 명령 실행                   |
 
 ## 주요 기능
 
@@ -53,7 +54,7 @@
 | 클라이언트 | React Native, Expo SDK 54, TypeScript |
 | Hub        | Node.js, Fastify                      |
 | Workers    | Python, FastAPI                       |
-| AI         | OpenAI GPT, Claude Code CLI, Ollama   |
+| AI         | OpenAI GPT, Codex CLI, Claude Code CLI, Ollama |
 | 인프라     | Hub-and-Spoke 리버스 프록시           |
 
 ## 프로젝트 구조
@@ -64,10 +65,29 @@ case/
 ├── workers/
 │   ├── gpt/          # GPT 채팅 워커
 │   ├── context/      # 컨텍스트 메모리 워커
+│   ├── codex/        # Codex CLI 명령 워커
 │   ├── claude/       # Claude Code 명령 워커
 │   ├── ollama/       # Ollama 로컬 LLM 워커
 │   └── ssh/          # SSH 원격 명령 워커
 └── android/          # Expo React Native 앱
+```
+
+## 서버 실행
+
+루트에서 `run_servers.sh`를 실행하면 Hub와 기본 워커(GPT, Context, Codex, Ollama, SSH)를 함께 시작합니다. `/command`는 기본적으로 Codex 워커로 라우팅됩니다.
+
+```bash
+./run_servers.sh
+```
+
+자주 쓰는 옵션:
+
+```bash
+./run_servers.sh --workers core
+./run_servers.sh --only hub,gpt,codex
+./run_servers.sh --exclude ssh,ollama
+./run_servers.sh --executor claude --workers core
+./run_servers.sh --codex-port 8014 --dry-run
 ```
 
 ## 연락처

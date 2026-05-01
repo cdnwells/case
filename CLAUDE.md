@@ -16,12 +16,13 @@ The system uses a hub-and-spoke architecture where the Hub (Node.js/Fastify, por
 |---------|------|----------------|--------------------------------------|
 | GPT     | 8000 | Python/FastAPI | Chat via OpenAI GPT                  |
 | Context | 8001 | Python/FastAPI | Memory/context file storage           |
-| Claude  | 8003 | Python/FastAPI | Command execution via Claude Code CLI|
+| Codex   | 8004 | Python/FastAPI | Command execution via Codex CLI       |
+| Claude  | 8003 | Python/FastAPI | Legacy command execution via Claude Code CLI|
 
 ## Hub Routing
 
 - `POST /chat` → Context Worker (load) → GPT Worker → Context Worker (save)
-- `POST /command` → Claude Worker (fire-and-forget)
+- `POST /command` → command worker (Codex by default, fire-and-forget)
 - `GET /command/result/:id` → In-memory store
 - `/context/*` → Context Worker
 - Everything else → GPT Worker (default)
@@ -32,3 +33,9 @@ The system uses a hub-and-spoke architecture where the Hub (Node.js/Fastify, por
 2. Add `<NAME>_WORKER_URL` to `hub/.env`
 3. Add routing logic to `hub/hub.js` in `selectWorkerUrl()` and/or a dedicated route
 4. Worker must have `GET /health` endpoint
+
+## Local Server Runner
+
+- Use `./run_servers.sh` to start the hub and worker servers together.
+- The runner defaults to Codex for `/command` by setting `COMMAND_WORKER_URL`.
+- Use `./run_servers.sh --executor claude --workers core` only when intentionally testing the legacy Claude command worker.
