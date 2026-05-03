@@ -48,12 +48,12 @@ export function useChat() {
         try {
           const result = await chatService.pollCommandResult(executionId);
 
-          if (result.status === "executing") {
+          if (result.status === "queued" || result.status === "executing") {
             setState((prev) => ({
               ...prev,
               messages: prev.messages.map((msg) =>
                 msg.id === originalMessageId
-                  ? { ...msg, executionStatus: "executing" as const }
+                  ? { ...msg, executionStatus: result.status }
                   : msg,
               ),
             }));

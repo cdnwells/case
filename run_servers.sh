@@ -4,7 +4,7 @@ set -Eeuo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 EXECUTOR="codex"
-WORKERS_ARG=""
+WORKERS_ARG="none"
 ONLY_ARG=""
 EXCLUDE_ARG=""
 START_HUB=1
@@ -35,14 +35,14 @@ usage() {
   cat <<'USAGE'
 Usage: ./run_servers.sh [options]
 
-Starts the Case hub plus worker servers. By default, /command routes to Codex.
+Starts the Case v1 hub server only. Python worker servers are out of scope for v1.
 
 Options:
-  --executor codex|claude     Command executor used by the hub (default: codex)
-  --workers LIST              Workers to start: all, core, command, gpt,context,codex,ollama,ssh,claude
-  --only LIST                 Exact services to start. Include hub if needed, e.g. hub,gpt,codex
-  --exclude LIST              Services/workers to skip from the selected set
-  --no-hub                    Start workers only
+  --executor codex|claude     Legacy option; worker executors are not started in v1
+  --workers LIST              Legacy option; values other than none are rejected in v1
+  --only LIST                 Exact services to start. In v1, only hub is accepted
+  --exclude LIST              Services to skip from the selected set
+  --no-hub                    Invalid for v1; the runner starts the hub only
   --hub-only                  Start the hub only
   --host HOST                 Worker bind host (default: 0.0.0.0)
   --hub-port PORT             Hub port (default: 5000)
@@ -60,10 +60,8 @@ Options:
 
 Examples:
   ./run_servers.sh
-  ./run_servers.sh --workers core
-  ./run_servers.sh --only hub,gpt,codex
-  ./run_servers.sh --executor claude --workers core
-  ./run_servers.sh --exclude ssh,ollama --codex-port 8014
+  ./run_servers.sh --hub-only
+  ./run_servers.sh --only hub
 USAGE
 }
 
@@ -380,14 +378,14 @@ filtered=()
 filter_excludes unique filtered
 workers=("${filtered[@]}")
 
-COMMAND_WORKER_PORT="$CODEX_PORT"
-if [[ "$EXECUTOR" == "claude" ]]; then
-  COMMAND_WORKER_PORT="$CLAUDE_PORT"
+if [[ "${#workers[@]}" -gt 0 ]]; then
+  echo "Worker servers are out of scope for v1; start the hub only." >&2
+  exit 2
 fi
-COMMAND_WORKER_URL="http://localhost:$COMMAND_WORKER_PORT"
 
-if [[ "$START_HUB" -eq 1 && ! " ${workers[*]} " =~ " ${EXECUTOR} " ]]; then
-  echo "Warning: hub /command routes to $EXECUTOR, but the $EXECUTOR worker is not selected." >&2
+if [[ "$START_HUB" -ne 1 ]]; then
+  echo "The v1 runner only starts the hub server." >&2
+  exit 2
 fi
 
 pids=()
@@ -419,34 +417,6 @@ start_process() {
   echo "$name started on pid $pid (log: $log_file)"
 }
 
-start_worker() {
-  local worker="$1"
-  case "$worker" in
-    gpt)
-      start_process "gpt" "$ROOT_DIR/workers/gpt" env HOST="$HOST" PORT="$GPT_PORT" DEBUG="$DEBUG" "$PYTHON_BIN" main.py
-      ;;
-    context)
-      start_process "context" "$ROOT_DIR/workers/context" env HOST="$HOST" PORT="$CONTEXT_PORT" DEBUG="$DEBUG" "$PYTHON_BIN" main.py
-      ;;
-    codex)
-      start_process "codex" "$ROOT_DIR/workers/codex" env HOST="$HOST" PORT="$CODEX_PORT" DEBUG="$DEBUG" "$PYTHON_BIN" main.py
-      ;;
-    ollama)
-      start_process "ollama" "$ROOT_DIR/workers/ollama" env HOST="$HOST" PORT="$OLLAMA_PORT" DEBUG="$DEBUG" "$PYTHON_BIN" main.py
-      ;;
-    ssh)
-      start_process "ssh" "$ROOT_DIR/workers/ssh" env HOST="$HOST" PORT="$SSH_PORT" DEBUG="$DEBUG" "$PYTHON_BIN" main.py
-      ;;
-    claude)
-      start_process "claude" "$ROOT_DIR/workers/claude" env HOST="$HOST" PORT="$CLAUDE_PORT" DEBUG="$DEBUG" "$PYTHON_BIN" main.py
-      ;;
-    *)
-      echo "Unknown worker: $worker" >&2
-      exit 2
-      ;;
-  esac
-}
-
 cleanup() {
   local status=$?
   trap - EXIT INT TERM
@@ -462,20 +432,9 @@ cleanup() {
 
 trap cleanup EXIT INT TERM
 
-for worker in "${workers[@]}"; do
-  start_worker "$worker"
-done
-
 if [[ "$START_HUB" -eq 1 ]]; then
   start_process "hub" "$ROOT_DIR/hub" env \
     PORT="$HUB_PORT" \
-    PYTHON_WORKER_URL="http://localhost:$GPT_PORT" \
-    CONTEXT_WORKER_URL="http://localhost:$CONTEXT_PORT" \
-    CODEX_WORKER_URL="http://localhost:$CODEX_PORT" \
-    CLAUDE_WORKER_URL="http://localhost:$CLAUDE_PORT" \
-    CHAT_WORKER_URL="http://localhost:$CODEX_PORT" \
-    COMMAND_WORKER_URL="$COMMAND_WORKER_URL" \
-    COMMAND_WORKER_NAME="$EXECUTOR" \
     "$NODE_BIN" hub.js
 fi
 

@@ -1,23 +1,37 @@
 import 'dotenv/config'
 import Fastify from 'fastify'
 import crypto from 'crypto'
+import { spawn } from 'node:child_process'
+import { readFile, readdir } from 'node:fs/promises'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { DEFAULT_CHAT_PROVIDER, selectStartupChatProvider } from './providerMenu.js'
+import { isExecutableAvailable, validateSelectedChatProvider as validateChatProviderConfig } from './providerValidation.js'
+
+const __filename = fileURLToPath(import.meta.url)
+const __dirname = path.dirname(__filename)
+const repoRoot = path.resolve(__dirname, '..')
 
 // Configuration
 const config = {
   port: parseInt(process.env.PORT || '5000', 10),
-  pythonWorkerUrl: process.env.PYTHON_WORKER_URL || 'http://localhost:8000',
-  chatWorkerUrl: process.env.CHAT_WORKER_URL || process.env.CODEX_WORKER_URL || 'http://localhost:8004',
-  commandWorkerUrl: process.env.COMMAND_WORKER_URL
-    || process.env.CODEX_WORKER_URL
-    || process.env.CLAUDE_WORKER_URL
-    || 'http://localhost:8004',
-  commandWorkerName: process.env.COMMAND_WORKER_NAME
-    || (process.env.COMMAND_WORKER_URL ? 'custom' : (process.env.CLAUDE_WORKER_URL && !process.env.CODEX_WORKER_URL ? 'claude' : 'codex')),
-  contextWorkerUrl: process.env.CONTEXT_WORKER_URL || 'http://localhost:8001',
-  forwardTimeout: parseInt(process.env.FORWARD_TIMEOUT_MS || '120000', 10),
+  chatProvider: DEFAULT_CHAT_PROVIDER,
+  codexPath: process.env.CODEX_PATH || 'codex',
+  codexModel: process.env.CODEX_MODEL || '',
+  codexProfile: process.env.CODEX_PROFILE || '',
+  codexChatTimeout: parseInt(process.env.CODEX_CHAT_TIMEOUT || '120', 10),
+  openaiApiKey: process.env.OPENAI_API_KEY || '',
+  openaiBaseUrl: process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1',
+  openaiModel: process.env.OPENAI_MODEL || 'gpt-4o',
+  openaiTimeout: parseInt(process.env.OPENAI_TIMEOUT || '120', 10),
+  ollamaBaseUrl: process.env.OLLAMA_BASE_URL || 'http://localhost:11434',
+  ollamaModel: process.env.OLLAMA_MODEL || 'gpt-oss-20b',
+  ollamaTimeout: parseInt(process.env.OLLAMA_TIMEOUT || '120', 10),
 }
 
-const hubApiKey = process.env.HUB_API_KEY
+async function validateSelectedChatProvider(logger) {
+  return validateChatProviderConfig(config, logger)
+}
 
 const fastify = Fastify({
   logger: { level: process.env.LOG_LEVEL || 'info' },
@@ -28,8 +42,33 @@ const fastify = Fastify({
 const RESULT_TTL_MS = 10 * 60 * 1000 // 10 minutes
 const commandResults = new Map()
 
+function buildCommandResultResponse(executionId, entry) {
+  if (!entry) {
+    return { status: 'not_found', executionId }
+  }
+
+  if (entry.status === 'queued' || entry.status === 'executing') {
+    return {
+      status: 'executing',
+      executionId,
+      result: null,
+    }
+  }
+
+  const response = {
+    status: entry.status,
+    executionId,
+  }
+
+  if (Object.hasOwn(entry, 'result')) {
+    response.result = entry.result
+  }
+
+  return response
+}
+
 // Cleanup expired results every 60 seconds
-setInterval(() => {
+const commandResultsCleanupInterval = setInterval(() => {
   const now = Date.now()
   for (const [id, entry] of commandResults) {
     if (now - entry.createdAt > RESULT_TTL_MS) {
@@ -37,112 +76,464 @@ setInterval(() => {
     }
   }
 }, 60_000)
+commandResultsCleanupInterval.unref?.()
 
-// Worker selection based on request path
-function selectWorkerUrl(path) {
-  if (path.startsWith('/command')) {
-    return config.commandWorkerUrl
+class ChatProviderError extends Error {
+  constructor(message, cause) {
+    super(message)
+    this.name = 'ChatProviderError'
+    this.cause = cause
   }
-  if (path.startsWith('/context')) {
-    return config.contextWorkerUrl
-  }
-  return config.pythonWorkerUrl
 }
 
-// Async command execution with result storage
-function executeCommandAsync(url, body, headers, logger) {
-  const executionId = body?.executionId
-  const forwardHeaders = { ...headers }
-  delete forwardHeaders['host']
-  delete forwardHeaders['connection']
-  delete forwardHeaders['keep-alive']
-  delete forwardHeaders['transfer-encoding']
-  delete forwardHeaders['content-length']
-
-  forwardHeaders['x-forwarded-by'] = 'echo-hub'
-  forwardHeaders['X-API-key'] = hubApiKey
-
-  const fetchOptions = {
-    method: 'POST',
-    headers: forwardHeaders,
-    body: typeof body === 'string' ? body : JSON.stringify(body),
+function providerErrorMessage(err) {
+  if (err instanceof Error && err.message) {
+    return err.message
   }
 
-  if (typeof body !== 'string') {
-    forwardHeaders['content-type'] = 'application/json'
+  if (typeof err === 'string' && err.trim()) {
+    return err.trim()
   }
 
-  fetch(url, fetchOptions)
-    .then(res => res.json())
-    .then(result => {
-      logger.info({ executionId, result }, 'Command executed')
-      if (executionId) {
-        commandResults.set(executionId, {
-          status: result.success ? 'completed' : 'failed',
-          result,
-          createdAt: Date.now(),
-        })
-      }
-    })
-    .catch(err => {
-      logger.error({ executionId, err }, 'Command execution failed')
-      if (executionId) {
-        commandResults.set(executionId, {
-          status: 'failed',
-          result: { success: false, stdout: '', stderr: err.message, exit_code: -1, execution_time: 0 },
-          createdAt: Date.now(),
-        })
-      }
-    })
+  return 'Selected chat provider failed'
 }
 
-// Reverse proxy forwarding
-async function forwardToWorker({ method, path, headers, body, workerUrl }, logger) {
-  const url = `${workerUrl || config.pythonWorkerUrl}${path}`
+function buildProviderErrorResponse(provider, err) {
+  return {
+    error: 'Provider Error',
+    message: providerErrorMessage(err),
+    provider,
+  }
+}
 
-  logger.info(`${url}`)
-
-  const forwardHeaders = { ...headers }
-  delete forwardHeaders['host']
-  delete forwardHeaders['connection']
-  delete forwardHeaders['keep-alive']
-  delete forwardHeaders['transfer-encoding']
-  delete forwardHeaders['content-length']
-
-  forwardHeaders['x-forwarded-by'] = 'echo-hub'
-  forwardHeaders['x-forwarded-host'] = headers.host || 'unknown'
-  forwardHeaders['X-API-key'] = hubApiKey
-
-  const fetchOptions = {
-    method,
-    headers: forwardHeaders,
-    signal: AbortSignal.timeout(config.forwardTimeout),
+function validateChatBody(body) {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) {
+    return 'Request body must be a JSON object'
   }
 
-  if (body && method !== 'GET' && method !== 'HEAD') {
-    fetchOptions.body = typeof body === 'string' ? body : JSON.stringify(body)
-    if (typeof body !== 'string') {
-      forwardHeaders['content-type'] = 'application/json'
+  if (typeof body.content !== 'string' || body.content.trim().length === 0) {
+    return 'content must be a non-empty string'
+  }
+
+  if (body.content.length > 10_000) {
+    return 'content must be 10000 characters or fewer'
+  }
+
+  if (body.conversationId !== undefined && typeof body.conversationId !== 'string') {
+    return 'conversationId must be a string when provided'
+  }
+
+  return null
+}
+
+async function readTextFile(relativePath, fallback = '') {
+  try {
+    return (await readFile(path.join(repoRoot, relativePath), 'utf8')).trim()
+  } catch {
+    return fallback
+  }
+}
+
+async function readMarkdownDirectory(relativePath) {
+  const directory = path.join(repoRoot, relativePath)
+  try {
+    const names = await readdir(directory)
+    const parts = []
+
+    for (const name of names.sort()) {
+      if (name.endsWith('.md')) {
+        parts.push((await readFile(path.join(directory, name), 'utf8')).trim())
+      }
+    }
+
+    return parts.filter(Boolean).join('\n\n')
+  } catch {
+    return ''
+  }
+}
+
+const systemPromptCache = new Map()
+
+async function buildSystemPrompt(provider) {
+  if (systemPromptCache.has(provider)) {
+    return systemPromptCache.get(provider)
+  }
+
+  const persona = await readTextFile('workers/shared/persona.md', 'You are Case, a helpful assistant.')
+  const responseFormatPath = provider === 'ollama'
+    ? 'workers/ollama/docs/response_format.md'
+    : 'workers/gpt/docs/response_format.md'
+  const responseFormat = await readTextFile(responseFormatPath)
+  const workerDocs = provider === 'codex' ? await readMarkdownDirectory('workers/codex/docs') : ''
+  const prompt = [persona, responseFormat, workerDocs].filter(Boolean).join('\n\n')
+
+  systemPromptCache.set(provider, prompt)
+  return prompt
+}
+
+function parseJsonObject(content) {
+  try {
+    return JSON.parse(content.trim())
+  } catch {
+    // Fall through to fenced JSON extraction.
+  }
+
+  const fenced = content.match(/```(?:json)?\s*(\{[\s\S]*?\})\s*```/)
+  if (!fenced) {
+    return null
+  }
+
+  try {
+    return JSON.parse(fenced[1])
+  } catch {
+    return null
+  }
+}
+
+function normalizeCommand(command) {
+  return {
+    command: String(command.command || '').trim(),
+    description: command.description ?? null,
+    workingDirectory: command.workingDirectory ?? command.working_directory ?? null,
+    requiresConfirmation: Boolean(command.requiresConfirmation ?? command.requires_confirmation ?? false),
+    timeoutSeconds: Number(command.timeoutSeconds ?? command.timeout_seconds ?? 120),
+  }
+}
+
+function parseJsonProviderContent(content) {
+  const parsed = parseJsonObject(content)
+
+  if (!parsed || typeof parsed !== 'object') {
+    return {
+      text: content.trim(),
+      commands: [],
+      memory: null,
     }
   }
 
-  const response = await fetch(url, fetchOptions)
-  const contentType = response.headers.get('content-type') || ''
-
-  let data
-  if (contentType.includes('application/json')) {
-    data = await response.json()
-  } else {
-    data = await response.text()
+  const messageText = typeof parsed.message === 'string' ? parsed.message : content
+  const commands = []
+  const action = parsed.action
+  if (action && typeof action === 'object' && action.type === 'execute' && action.instruction) {
+    commands.push(normalizeCommand({
+      command: action.instruction,
+      description: 'Computer task',
+      requiresConfirmation: false,
+      timeoutSeconds: 120,
+    }))
   }
 
-  logger.info({ url, method, status: response.status }, 'Forwarded')
+  const memory = Array.isArray(parsed.memory)
+    ? parsed.memory.map(item => String(item)).filter(Boolean)
+    : null
 
   return {
-    status: response.status,
-    contentType,
-    data,
+    text: messageText.trim(),
+    commands,
+    memory: memory?.length ? memory : null,
   }
+}
+
+const DANGEROUS_SHELL_COMMAND_PATTERNS = [
+  /\brm\s+-rf\b/i,
+  /\brm\s+-r\b/i,
+  /\bsudo\b/i,
+  /\bchmod\s+777\b/i,
+  /\b>\s*\/dev\//i,
+  /\bdd\s+if=/i,
+  /\bmkfs\b/i,
+  /\bformat\b/i,
+]
+
+function isDangerousShellCommand(command) {
+  return DANGEROUS_SHELL_COMMAND_PATTERNS.some(pattern => pattern.test(command))
+}
+
+function parseShellProviderContent(content) {
+  const commands = []
+  const commandPattern = /```(?:shell|bash|sh)\s*(?:\{([^}]+)\})?\s*\n([\s\S]*?)\n```/g
+  let match
+
+  while ((match = commandPattern.exec(content)) !== null) {
+    const commandText = match[2].trim()
+    if (!commandText) {
+      continue
+    }
+
+    let metadata = {}
+    if (match[1]) {
+      try {
+        metadata = JSON.parse(`{${match[1]}}`)
+      } catch {
+        metadata = {}
+      }
+    }
+
+    commands.push(normalizeCommand({
+      command: commandText,
+      description: metadata.description,
+      requiresConfirmation: Boolean(metadata.confirm) || isDangerousShellCommand(commandText),
+      timeoutSeconds: metadata.timeout_seconds ?? metadata.timeoutSeconds ?? 120,
+    }))
+  }
+
+  return {
+    text: content.trim(),
+    commands,
+    memory: null,
+  }
+}
+
+function parseProviderContent(provider, content) {
+  if (provider === 'ollama') {
+    return parseShellProviderContent(content)
+  }
+
+  return parseJsonProviderContent(content)
+}
+
+function queueChatCommands(commands) {
+  if (!commands?.length) {
+    return {
+      executionStatus: null,
+      hasCommands: false,
+      executionId: null,
+    }
+  }
+
+  const executionId = crypto.randomUUID()
+  commandResults.set(executionId, {
+    status: 'queued',
+    result: null,
+    commands,
+    createdAt: Date.now(),
+  })
+
+  return {
+    executionStatus: 'queued',
+    hasCommands: true,
+    executionId,
+  }
+}
+
+function createAndroidMessage({ text, commands }) {
+  const commandList = commands?.length ? commands : null
+  const execution = queueChatCommands(commandList)
+
+  return {
+    id: `msg_${crypto.randomUUID().replaceAll('-', '').slice(0, 12)}`,
+    content: text,
+    role: 'assistant',
+    timestamp: new Date().toISOString(),
+    status: 'sent',
+    parsedContent: {
+      text,
+      commands: commandList,
+    },
+    executionStatus: execution.executionStatus,
+    hasCommands: execution.hasCommands,
+    executionId: execution.executionId,
+  }
+}
+
+function normalizeSuccessfulChatResponse(provider, providerContent) {
+  const parsed = parseProviderContent(provider, providerContent)
+
+  return {
+    responseData: {
+      message: createAndroidMessage({
+        text: parsed.text,
+        commands: parsed.commands,
+      }),
+    },
+    memory: parsed.memory,
+  }
+}
+
+function runProcess(command, args, input, timeoutSeconds) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(command, args, {
+      env: { ...process.env, NO_COLOR: '1' },
+      stdio: ['pipe', 'pipe', 'pipe'],
+    })
+
+    let stdout = ''
+    let stderr = ''
+    let settled = false
+    let timer
+
+    const finish = (callback) => {
+      if (settled) {
+        return
+      }
+      settled = true
+      clearTimeout(timer)
+      callback()
+    }
+
+    timer = setTimeout(() => {
+      child.kill('SIGKILL')
+      finish(() => reject(new ChatProviderError(`Provider timed out after ${timeoutSeconds}s`)))
+    }, timeoutSeconds * 1000)
+
+    child.stdout.on('data', chunk => {
+      stdout += chunk.toString('utf8')
+    })
+    child.stderr.on('data', chunk => {
+      stderr += chunk.toString('utf8')
+    })
+    child.on('error', err => {
+      finish(() => reject(new ChatProviderError(`Failed to start provider process: ${err.message}`, err)))
+    })
+    child.on('close', exitCode => {
+      finish(() => resolve({ stdout, stderr, exitCode }))
+    })
+
+    child.stdin.end(input)
+  })
+}
+
+async function runCodexChat({ content, context }) {
+  const systemPrompt = await buildSystemPrompt('codex')
+  const promptParts = [systemPrompt]
+  if (context) {
+    promptParts.push(`Known conversation context:\n${context}`)
+  }
+  promptParts.push(`User message:\n${content}`)
+  promptParts.push('Respond as raw JSON following the response format above.')
+
+  const args = [
+    'exec',
+    '--dangerously-bypass-approvals-and-sandbox',
+    '--sandbox',
+    'danger-full-access',
+    '--skip-git-repo-check',
+    '--color',
+    'never',
+  ]
+
+  if (config.codexModel) {
+    args.push('--model', config.codexModel)
+  }
+  if (config.codexProfile) {
+    args.push('--profile', config.codexProfile)
+  }
+  args.push('-')
+
+  const result = await runProcess(
+    config.codexPath,
+    args,
+    promptParts.filter(Boolean).join('\n\n'),
+    config.codexChatTimeout,
+  )
+
+  if (result.exitCode !== 0) {
+    const stderr = result.stderr.trim()
+    throw new ChatProviderError(`Codex chat failed with exit code ${result.exitCode}${stderr ? `: ${stderr}` : ''}`)
+  }
+
+  return result.stdout
+}
+
+async function runOpenAiChat({ content, context }) {
+  if (!config.openaiApiKey) {
+    throw new ChatProviderError('OPENAI_API_KEY is required for gpt chat provider')
+  }
+
+  const systemPrompt = await buildSystemPrompt('gpt')
+  const messages = [
+    { role: 'system', content: context ? `${systemPrompt}\n\n${context}` : systemPrompt },
+    { role: 'user', content },
+  ]
+
+  const response = await fetch(`${config.openaiBaseUrl.replace(/\/$/, '')}/chat/completions`, {
+    method: 'POST',
+    headers: {
+      authorization: `Bearer ${config.openaiApiKey}`,
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({
+      model: config.openaiModel,
+      messages,
+    }),
+    signal: AbortSignal.timeout(config.openaiTimeout * 1000),
+  })
+
+  const responseText = await response.text()
+  if (!response.ok) {
+    throw new ChatProviderError(`OpenAI API returned ${response.status}: ${responseText.slice(0, 500)}`)
+  }
+
+  let data
+  try {
+    data = JSON.parse(responseText)
+  } catch (err) {
+    throw new ChatProviderError('OpenAI API returned invalid JSON', err)
+  }
+
+  const message = data?.choices?.[0]?.message?.content
+  if (typeof message !== 'string') {
+    throw new ChatProviderError('OpenAI API response did not include assistant content')
+  }
+
+  return message
+}
+
+async function runOllamaChat({ content }) {
+  const systemPrompt = await buildSystemPrompt('ollama')
+  const messages = systemPrompt
+    ? [{ role: 'system', content: systemPrompt }, { role: 'user', content }]
+    : [{ role: 'user', content }]
+
+  const response = await fetch(`${config.ollamaBaseUrl.replace(/\/$/, '')}/api/chat`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      model: config.ollamaModel,
+      messages,
+      stream: false,
+    }),
+    signal: AbortSignal.timeout(config.ollamaTimeout * 1000),
+  })
+
+  const responseText = await response.text()
+  if (!response.ok) {
+    throw new ChatProviderError(`Ollama API returned ${response.status}: ${responseText.slice(0, 500)}`)
+  }
+
+  let data
+  try {
+    data = JSON.parse(responseText)
+  } catch (err) {
+    throw new ChatProviderError('Ollama API returned invalid JSON', err)
+  }
+
+  const message = data?.message?.content
+  if (typeof message !== 'string') {
+    throw new ChatProviderError('Ollama API response did not include assistant content')
+  }
+
+  return message
+}
+
+async function runChatProvider(provider, requestBody) {
+  const chatInput = {
+    content: requestBody.content,
+    conversationId: requestBody.conversationId,
+    context: '',
+  }
+
+  if (provider === 'codex') {
+    return runCodexChat(chatInput)
+  }
+  if (provider === 'gpt') {
+    return runOpenAiChat(chatInput)
+  }
+  if (provider === 'ollama') {
+    return runOllamaChat(chatInput)
+  }
+
+  throw new ChatProviderError(`Unsupported chat provider: ${provider}`)
 }
 
 // Health check (not forwarded)
@@ -152,153 +543,61 @@ fastify.get('/health', async () => ({
 }))
 
 // Poll command result by executionId
+fastify.get('/command/result', async (request, reply) => {
+  reply.code(404)
+  return buildCommandResultResponse('', null)
+})
+
+fastify.get('/command/result/', async (request, reply) => {
+  reply.code(404)
+  return buildCommandResultResponse('', null)
+})
+
 fastify.get('/command/result/:executionId', async (request, reply) => {
   const { executionId } = request.params
   const entry = commandResults.get(executionId)
 
   if (!entry) {
     reply.code(404)
-    return { status: 'not_found', executionId }
+    return buildCommandResultResponse(executionId, entry)
   }
 
-  return {
-    status: entry.status,
-    executionId,
-    result: entry.result,
-  }
+  return buildCommandResultResponse(executionId, entry)
 })
 
-// Command execution endpoint (fire-and-forget)
-fastify.post('/command', async (request, reply) => {
-  const { body, headers } = request
-  const source = body?.source || 'unknown'
-  const executionId = body?.executionId
-  request.log.info({ source, executionId, body }, 'Command received')
-
-  // Track execution in result store
-  if (executionId) {
-    commandResults.set(executionId, {
-      status: 'executing',
-      result: null,
-      createdAt: Date.now(),
-    })
-  }
-
-  // Return immediately with 202 Accepted
-  reply.code(202).send({
-    status: 'working',
-    source,
-    executionId,
-    message: 'Commands queued for execution'
-  })
-
-  // Execute in background
-  const commandUrl = `${config.commandWorkerUrl}/command`
-  executeCommandAsync(commandUrl, body, headers, request.log)
+fastify.get('/command/result/*', async (request, reply) => {
+  reply.code(404)
+  return buildCommandResultResponse(request.params['*'] || '', null)
 })
 
-// Chat endpoint with context orchestration
+// Chat endpoint with in-process provider handling
 fastify.post('/chat', async (request, reply) => {
-  const { headers, body } = request
-  request.log.info({ body }, 'Chat received - loading context')
-
-  // Step 1: Load context from Context Worker
-  let context = ''
-  try {
-    const ctxResponse = await forwardToWorker({
-      method: 'GET',
-      path: '/context',
-      headers: {},
-      workerUrl: config.contextWorkerUrl,
-    }, request.log)
-
-    if (ctxResponse.status === 200 && ctxResponse.data?.context) {
-      context = ctxResponse.data.context
-    }
-  } catch (err) {
-    // Context loading failure is non-fatal; proceed without context
-    request.log.warn({ error: err.message }, 'Failed to load context, proceeding without')
-  }
-
-  // Step 2: Inject context into request body and forward to chat worker
-  const enrichedBody = { ...body }
-  if (context) {
-    enrichedBody.context = context
+  const { body } = request
+  const validationError = validateChatBody(body)
+  if (validationError) {
+    reply.code(400)
+    return { error: 'Bad Request', message: validationError }
   }
 
   try {
-    const chatResponse = await forwardToWorker({
-      method: 'POST',
-      path: '/chat',
-      headers,
-      body: enrichedBody,
-      workerUrl: config.chatWorkerUrl,
-    }, request.log)
+    request.log.info({
+      provider: config.chatProvider,
+      conversationId: body.conversationId,
+    }, 'Chat received')
 
-    const responseData = chatResponse.data
+    const providerContent = await runChatProvider(config.chatProvider, body)
+    const normalized = normalizeSuccessfulChatResponse(config.chatProvider, providerContent)
 
-    // Step 3: Extract and save memory from chat response
-    if (responseData?.memory && Array.isArray(responseData.memory) && responseData.memory.length > 0) {
-      // Save memories to context worker (non-fatal)
-      try {
-        await forwardToWorker({
-          method: 'POST',
-          path: '/context/memories',
-          headers: { 'content-type': 'application/json' },
-          body: { memories: responseData.memory, source: 'gpt' },
-          workerUrl: config.contextWorkerUrl,
-        }, request.log)
-        request.log.info({ count: responseData.memory.length }, 'Memories saved')
-      } catch (err) {
-        request.log.warn({ error: err.message }, 'Failed to save memories')
-      }
-
-      // Strip memory field from response before returning to Android
-      delete responseData.memory
+    if (normalized.memory?.length) {
+      request.log.info({ count: normalized.memory.length }, 'Provider returned internal memory')
     }
 
-    reply.code(chatResponse.status)
-    if (chatResponse.contentType) {
-      reply.header('content-type', chatResponse.contentType)
-    }
-    return responseData
+    return normalized.responseData
   } catch (err) {
-    request.log.error({ error: err.message }, 'Chat forward failed')
-
-    if (err.name === 'TimeoutError') {
-      reply.code(504)
-      return { error: 'Hub Timeout', message: 'Worker did not respond in time' }
-    }
-
+    const providerError = buildProviderErrorResponse(config.chatProvider, err)
+    request.log.error({ provider: config.chatProvider, error: providerError.message }, 'Chat provider failed')
     reply.code(502)
-    return { error: 'Bad Hub', message: 'Failed to reach worker' }
-  }
-})
-
-// Hub catch-all (reverse proxy)
-fastify.all('/*', async (request, reply) => {
-  const { method, url, headers, body } = request
-  request.log.info({ method, url }, 'Hub received')
-
-  try {
-    const workerUrl = selectWorkerUrl(url)
-    const response = await forwardToWorker({ method, path: url, headers, body, workerUrl }, request.log)
-
-    reply.code(response.status)
-    if (response.contentType) {
-      reply.header('content-type', response.contentType)
-    }
-    return response.data
-  } catch (err) {
-    request.log.error({ url, method, error: err.message }, 'Forward failed')
-
-    if (err.name === 'TimeoutError') {
-      reply.code(504)
-      return { error: 'Hub Timeout', message: 'Worker did not respond in time' }
-    }
-
-    reply.code(502)
-    return { error: 'Bad Hub', message: 'Failed to reach worker' }
+    return providerError
   }
 })
 
@@ -312,19 +611,45 @@ process.on('SIGTERM', () => shutdown('SIGTERM'))
 process.on('SIGINT', () => shutdown('SIGINT'))
 
 // Start
-const start = async () => {
+const start = async ({
+  selectProvider = selectStartupChatProvider,
+  validateProvider = validateSelectedChatProvider,
+  listen = options => fastify.listen(options),
+  logger = fastify.log,
+  exit = process.exit,
+} = {}) => {
   try {
-    await fastify.listen({ port: config.port, host: '0.0.0.0' })
-    fastify.log.info({
-      pythonWorkerUrl: config.pythonWorkerUrl,
-      contextWorkerUrl: config.contextWorkerUrl,
-      chatWorkerUrl: config.chatWorkerUrl,
-      commandWorkerUrl: config.commandWorkerUrl,
-      commandWorkerName: config.commandWorkerName,
+    config.chatProvider = await selectProvider()
+    await validateProvider(logger)
+    await listen({ port: config.port, host: '0.0.0.0' })
+    logger.info({
+      chatProvider: config.chatProvider,
     }, 'Hub started')
   } catch (err) {
-    fastify.log.error(err)
-    process.exit(1)
+    if (err.code === 'PROVIDER_SELECTION_CANCELLED') {
+      return exit(130)
+    }
+
+    const message = err instanceof Error ? err.message : String(err)
+    logger.error({ err }, message)
+    return exit(1)
   }
 }
-start()
+
+export {
+  buildCommandResultResponse,
+  buildProviderErrorResponse,
+  commandResults,
+  config,
+  fastify,
+  isExecutableAvailable,
+  normalizeSuccessfulChatResponse,
+  start,
+  validateSelectedChatProvider,
+}
+
+const isMainModule = process.argv[1] && __filename === path.resolve(process.argv[1])
+
+if (isMainModule) {
+  start()
+}
