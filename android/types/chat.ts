@@ -25,7 +25,7 @@ export interface SendMessageResponse {
 }
 
 export interface CommandResultResponse {
-  status: 'executing' | 'completed' | 'failed' | 'not_found';
+  status: 'queued' | 'executing' | 'completed' | 'failed' | 'not_found';
   executionId: string;
   result?: {
     success: boolean;
