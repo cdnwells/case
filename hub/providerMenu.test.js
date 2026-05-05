@@ -22,6 +22,7 @@ test('startup provider menu highlights codex by default', async () => {
   assert.equal(DEFAULT_CHAT_PROVIDER, 'codex')
   assert.equal(selectedProvider, 'codex')
   assert.match(renderedMenu, /^> codex$/m)
+  assert.match(renderedMenu, /^  claude$/m)
   assert.match(renderedMenu, /^  gpt$/m)
   assert.match(renderedMenu, /^  ollama$/m)
 })

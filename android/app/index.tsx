@@ -3,6 +3,7 @@ import { BatteryOptimizationScreen } from "@/components/auth/BatteryOptimization
 import { ChatScreen } from "@/components/chat";
 import { ThemedView } from "@/components/themed-view";
 import { useAuth } from "@/hooks/useAuth";
+import { useApprovedVoiceProfileRuntime } from "@/hooks/useApprovedVoiceProfileRuntime";
 import { useBatteryOptimization } from "@/hooks/useBatteryOptimization";
 import React, { useEffect } from "react";
 import { Platform, StyleSheet } from "react-native";
@@ -12,6 +13,9 @@ export default function App() {
   const { isAuthenticated, isLoading, error, authenticate } = useAuth();
   const { isExempted, isChecking, request } = useBatteryOptimization();
   const isWeb = Platform.OS === "web";
+  useApprovedVoiceProfileRuntime({
+    enabled: isWeb || isAuthenticated,
+  });
 
   useEffect(() => {
     if (!isAuthenticated) {

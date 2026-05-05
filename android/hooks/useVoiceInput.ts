@@ -4,6 +4,21 @@ import {
   ExpoSpeechRecognitionModule,
 } from "expo-speech-recognition";
 import { Alert } from "react-native";
+import {
+  APPROVED_VOICE_LIVE_AUDIO_STREAM_FALLBACK_SOURCE,
+  APPROVED_VOICE_PROCESSING_START_LATENCY_LIMIT_MS,
+  APPROVED_VOICE_ROLLING_BUFFER_AUDIO_SOURCE,
+  createApprovedVoiceProcessingStart,
+  type ApprovedVoiceSpeechProcessingAudioSource,
+} from "@/services/voice/approvedVoiceProcessingLatency";
+import {
+  assertApprovedVoiceVerifiedForBufferedAudioDownstream,
+  createAudioSafeLogArgs,
+  releaseTranscriptionAudioAfterCompletionWithoutSaveIntent,
+  type ApprovedSpeechRollingBufferAudioSegment,
+  type ApprovedVoiceDownstreamAuthorizationMetadata,
+  type ApprovedSpeechAudioReleaseReason,
+} from "@/constants/audioBuffer";
 
 type VoiceState = "idle" | "recording" | "processing" | "error";
 
@@ -12,6 +27,7 @@ interface UseVoiceInputOptions {
   locale?: string;
   silenceTimeout?: number;
   active?: boolean;
+  requireApprovedVoiceGate?: boolean;
 }
 
 interface UseVoiceInputReturn {
@@ -19,9 +35,24 @@ interface UseVoiceInputReturn {
   error: string | null;
   isRecording: boolean;
   isProcessing: boolean;
-  startRecording: () => Promise<void>;
+  startRecording: (options?: StartRecordingOptions) => Promise<boolean>;
   stopRecording: () => Promise<void>;
   cancelRecording: () => Promise<void>;
+}
+
+interface StartRecordingOptions {
+  approvedVoiceGateAccepted?: boolean;
+  approvedVoiceMatchedVoiceId?: string | null;
+  approvedVoiceRecognizedAtMs?: number;
+  approvedVoiceDownstreamAuthorization?:
+    | ApprovedVoiceDownstreamAuthorizationMetadata
+    | null;
+  approvedSpeechAudioSegment?: ApprovedSpeechRollingBufferAudioSegment | null;
+  approvedSpeechProcessingAudioSource?: ApprovedVoiceSpeechProcessingAudioSource;
+  processingStartLatencyLimitMs?: number;
+  releaseCapturedAudio?: (
+    reason?: ApprovedSpeechAudioReleaseReason,
+  ) => boolean;
 }
 
 export function useVoiceInput({
@@ -29,12 +60,20 @@ export function useVoiceInput({
   locale = "ko-KR",
   silenceTimeout = 4000,
   active = true,
+  requireApprovedVoiceGate = false,
 }: UseVoiceInputOptions): UseVoiceInputReturn {
   const [state, setState] = useState<VoiceState>("idle");
   const [error, setError] = useState<string | null>(null);
   const silenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastSpeechTimeRef = useRef<number | null>(null);
   const currentTranscriptRef = useRef<string>("");
+  const releaseCapturedAudioRef = useRef<
+    ((reason?: ApprovedSpeechAudioReleaseReason) => boolean) | null
+  >(null);
+  const approvedSpeechAudioSegmentRef =
+    useRef<ApprovedSpeechRollingBufferAudioSegment | null>(null);
+  const approvedSpeechProcessingAudioSourceRef =
+    useRef<ApprovedVoiceSpeechProcessingAudioSource | null>(null);
 
   // Ref to avoid stale closures in event handlers
   const activeRef = useRef(active);
@@ -46,6 +85,26 @@ export function useVoiceInput({
       clearTimeout(silenceTimerRef.current);
       silenceTimerRef.current = null;
     }
+  }, []);
+
+  const releaseApprovedSpeechAudio = useCallback((
+    reason: ApprovedSpeechAudioReleaseReason,
+  ) => {
+    const releaseCapturedAudio = releaseCapturedAudioRef.current;
+    releaseCapturedAudioRef.current = null;
+    approvedSpeechAudioSegmentRef.current = null;
+    approvedSpeechProcessingAudioSourceRef.current = null;
+    releaseCapturedAudio?.(reason);
+  }, []);
+
+  const releaseTranscribedAudioWithoutSaveIntent = useCallback(() => {
+    const releaseCapturedAudio = releaseCapturedAudioRef.current;
+    releaseCapturedAudioRef.current = null;
+    approvedSpeechAudioSegmentRef.current = null;
+    approvedSpeechProcessingAudioSourceRef.current = null;
+    releaseTranscriptionAudioAfterCompletionWithoutSaveIntent({
+      releaseCapturedAudio,
+    });
   }, []);
 
   // Start silence detection timer
@@ -84,24 +143,39 @@ export function useVoiceInput({
     if (!activeRef.current) return;
     clearSilenceTimer();
     const transcript = currentTranscriptRef.current;
-    if (transcript.trim()) {
-      onTranscript(transcript);
+    try {
+      releaseTranscribedAudioWithoutSaveIntent();
+      if (transcript.trim()) {
+        onTranscript(transcript);
+      }
+    } finally {
+      setState("idle");
+      currentTranscriptRef.current = "";
     }
-    setState("idle");
-    currentTranscriptRef.current = "";
   });
 
   // Listen to speech recognition errors
   useSpeechRecognitionEvent("error", (event) => {
     if (!activeRef.current) return;
-    // Ignore non-fatal errors:
-    // "aborted" — normal during wake word → voice input handoff
-    // "no-speech" — user hasn't spoken yet, not a real error
-    if (event.error === "aborted" || event.error === "no-speech") return;
-    console.error("Speech error:", event);
+    if (event.error === "aborted") {
+      clearSilenceTimer();
+      releaseApprovedSpeechAudio("processing_cancelled");
+      setState("idle");
+      currentTranscriptRef.current = "";
+      return;
+    }
+    if (event.error === "no-speech") {
+      clearSilenceTimer();
+      releaseApprovedSpeechAudio("processing_error");
+      setState("idle");
+      currentTranscriptRef.current = "";
+      return;
+    }
+    console.error(...createAudioSafeLogArgs("Speech error:", event));
     setState("error");
     setError(event.error || "Voice recognition failed");
     clearSilenceTimer();
+    releaseApprovedSpeechAudio("processing_error");
 
     // Auto-reset to idle after 1s
     setTimeout(() => {
@@ -122,13 +196,74 @@ export function useVoiceInput({
       setState("processing");
       await ExpoSpeechRecognitionModule.stop();
     } catch (error) {
-      console.error("Failed to stop recording:", error);
+      console.error(
+        ...createAudioSafeLogArgs("Failed to stop recording:", error),
+      );
       setState("error");
+      releaseApprovedSpeechAudio("processing_error");
       setTimeout(() => setState("idle"), 1000);
     }
-  }, [clearSilenceTimer]);
+  }, [clearSilenceTimer, releaseApprovedSpeechAudio]);
 
-  const startRecording = useCallback(async () => {
+  const startRecording = useCallback(async (
+    {
+      approvedVoiceGateAccepted = false,
+      approvedVoiceMatchedVoiceId = null,
+      approvedVoiceRecognizedAtMs,
+      approvedVoiceDownstreamAuthorization = null,
+      approvedSpeechAudioSegment = null,
+      approvedSpeechProcessingAudioSource,
+      processingStartLatencyLimitMs =
+        APPROVED_VOICE_PROCESSING_START_LATENCY_LIMIT_MS,
+      releaseCapturedAudio,
+    }: StartRecordingOptions = {},
+  ) => {
+    releaseApprovedSpeechAudio("processing_replaced");
+    releaseCapturedAudioRef.current = releaseCapturedAudio || null;
+    const eligibleRollingBufferAudioSegment =
+      approvedSpeechAudioSegment?.byteLength
+        ? approvedSpeechAudioSegment
+        : null;
+    approvedSpeechAudioSegmentRef.current = eligibleRollingBufferAudioSegment;
+    const resolvedApprovedSpeechProcessingAudioSource =
+      approvedSpeechProcessingAudioSource ??
+      (eligibleRollingBufferAudioSegment
+        ? APPROVED_VOICE_ROLLING_BUFFER_AUDIO_SOURCE
+        : APPROVED_VOICE_LIVE_AUDIO_STREAM_FALLBACK_SOURCE);
+    approvedSpeechProcessingAudioSourceRef.current = approvedVoiceGateAccepted
+      ? resolvedApprovedSpeechProcessingAudioSource
+      : null;
+
+    if (
+      approvedVoiceGateAccepted &&
+      !eligibleRollingBufferAudioSegment &&
+      resolvedApprovedSpeechProcessingAudioSource !==
+        APPROVED_VOICE_LIVE_AUDIO_STREAM_FALLBACK_SOURCE
+    ) {
+      releaseApprovedSpeechAudio("processing_start_failed");
+      setState("idle");
+      setError("Live audio stream fallback required for approved speech");
+      return false;
+    }
+
+    if (requireApprovedVoiceGate) {
+      try {
+        assertApprovedVoiceVerifiedForBufferedAudioDownstream({
+          downstreamPath: "transcription",
+          recognitionResult: {
+            accepted: approvedVoiceGateAccepted,
+            matchedVoiceId: approvedVoiceMatchedVoiceId,
+            downstreamAuthorization: approvedVoiceDownstreamAuthorization,
+          },
+        });
+      } catch {
+        releaseApprovedSpeechAudio("processing_start_failed");
+        setState("idle");
+        setError("Approved voice gate required before speech recognition");
+        return false;
+      }
+    }
+
     try {
       // Request permissions
       const { granted } =
@@ -138,7 +273,27 @@ export function useVoiceInput({
           "권한 거부됨",
           "음성 인식을 사용하려면 설정에서 마이크 권한을 허용해주세요.",
         );
-        return;
+        releaseApprovedSpeechAudio("processing_start_failed");
+        return false;
+      }
+
+      if (
+        approvedVoiceGateAccepted &&
+        approvedVoiceRecognizedAtMs !== undefined
+      ) {
+        const processingStart = createApprovedVoiceProcessingStart({
+          approvedVoiceRecognizedAtMs,
+          latencyLimitMs: processingStartLatencyLimitMs,
+        });
+
+        if (!processingStart.withinLimit) {
+          setState("idle");
+          setError(
+            "Approved voice processing did not start within the latency limit",
+          );
+          releaseApprovedSpeechAudio("processing_start_failed");
+          return false;
+        }
       }
 
       // Start recording
@@ -148,7 +303,7 @@ export function useVoiceInput({
         interimResults: true,
         maxAlternatives: 1,
         continuous: false,
-        requiresOnDeviceRecognition: false,
+        requiresOnDeviceRecognition: !approvedVoiceGateAccepted,
         addsPunctuation: false,
         contextualStrings: [],
         androidIntentOptions: {
@@ -158,8 +313,11 @@ export function useVoiceInput({
 
       setState("recording");
       startSilenceTimer();
+      return true;
     } catch (error: any) {
-      console.error("Failed to start recording:", error);
+      console.error(
+        ...createAudioSafeLogArgs("Failed to start recording:", error),
+      );
 
       if (
         error?.message?.includes("not available") ||
@@ -182,28 +340,40 @@ export function useVoiceInput({
       }
 
       setState("error");
+      releaseApprovedSpeechAudio("processing_start_failed");
       setTimeout(() => setState("idle"), 1000);
+      return false;
     }
-  }, [locale, startSilenceTimer]);
+  }, [
+    locale,
+    releaseApprovedSpeechAudio,
+    requireApprovedVoiceGate,
+    startSilenceTimer,
+  ]);
 
   const cancelRecording = useCallback(async () => {
     try {
       clearSilenceTimer();
       await ExpoSpeechRecognitionModule.abort();
+    } catch (error) {
+      console.error(
+        ...createAudioSafeLogArgs("Failed to cancel recording:", error),
+      );
+    } finally {
+      releaseApprovedSpeechAudio("processing_cancelled");
       setState("idle");
       currentTranscriptRef.current = "";
-    } catch (error) {
-      console.error("Failed to cancel recording:", error);
     }
-  }, [clearSilenceTimer]);
+  }, [clearSilenceTimer, releaseApprovedSpeechAudio]);
 
   // Cleanup on unmount
   useEffect(() => {
     return () => {
       clearSilenceTimer();
+      releaseApprovedSpeechAudio("processing_unmounted");
       ExpoSpeechRecognitionModule.abort();
     };
-  }, [clearSilenceTimer]);
+  }, [clearSilenceTimer, releaseApprovedSpeechAudio]);
 
   return {
     state,

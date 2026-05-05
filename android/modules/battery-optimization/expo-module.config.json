@@ -1,6 +1,9 @@
 {
   "platforms": ["android"],
   "android": {
-    "modules": ["expo.modules.batteryoptimization.BatteryOptimizationModule"]
+    "modules": [
+      "expo.modules.batteryoptimization.BatteryOptimizationModule",
+      "expo.modules.caseaudio.CaseContinuousMicrophoneCaptureModule"
+    ]
   }
 }

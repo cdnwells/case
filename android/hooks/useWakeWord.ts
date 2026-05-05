@@ -51,7 +51,7 @@ export function useWakeWord({
         interimResults: true,
         maxAlternatives: 1,
         continuous: true,
-        requiresOnDeviceRecognition: false,
+        requiresOnDeviceRecognition: true,
         addsPunctuation: false,
         androidIntentOptions: {
           EXTRA_ENABLE_LANGUAGE_DETECTION: true,

@@ -35,7 +35,11 @@ usage() {
   cat <<'USAGE'
 Usage: ./run_servers.sh [options]
 
-Starts the Case v1 hub server only. Python worker servers are out of scope for v1.
+Starts the Case v1 hub server with in-process chat providers and memory storage.
+Prompts for the hub chat provider with arrow-key selection before starting.
+
+Environment:
+  CHAT_PROVIDER=codex|claude|gpt|ollama  Skip the prompt and start with this provider
 
 Options:
   --executor codex|claude     Legacy option; worker executors are not started in v1
@@ -47,7 +51,7 @@ Options:
   --host HOST                 Worker bind host (default: 0.0.0.0)
   --hub-port PORT             Hub port (default: 5000)
   --gpt-port PORT             GPT worker port (default: 8000)
-  --context-port PORT         Context worker port (default: 8001)
+  --context-port PORT         Legacy option retained for compatibility
   --ollama-port PORT          Ollama worker port (default: 8002)
   --claude-port PORT          Claude worker port (default: 8003)
   --codex-port PORT           Codex worker port (default: 8004)
@@ -390,6 +394,54 @@ fi
 
 pids=()
 names=()
+log_files=()
+tail_pids=()
+
+validate_chat_provider() {
+  case "$1" in
+    codex|claude|gpt|ollama)
+      return 0
+      ;;
+    *)
+      echo "CHAT_PROVIDER must be one of: codex, claude, gpt, ollama" >&2
+      return 1
+      ;;
+  esac
+}
+
+select_hub_provider() {
+  if [[ -n "${CHAT_PROVIDER:-}" ]]; then
+    validate_chat_provider "$CHAT_PROVIDER" || return
+    printf '%s\n' "$CHAT_PROVIDER"
+    return
+  fi
+
+  if [[ "$DRY_RUN" -eq 1 ]]; then
+    printf '%s\n' "codex"
+    return
+  fi
+
+  (
+    cd "$ROOT_DIR/hub"
+    "$NODE_BIN" --input-type=module --eval '
+import { selectStartupChatProvider } from "./providerMenu.js"
+
+try {
+  const provider = await selectStartupChatProvider({
+    input: process.stdin,
+    output: process.stderr,
+  })
+  process.stdout.write(provider)
+} catch (err) {
+  if (err?.code === "PROVIDER_SELECTION_CANCELLED") {
+    process.exit(130)
+  }
+  console.error(err instanceof Error ? err.message : String(err))
+  process.exit(1)
+}
+'
+  )
+}
 
 start_process() {
   local name="$1"
@@ -414,12 +466,24 @@ start_process() {
   local pid="$!"
   pids+=("$pid")
   names+=("$name")
+  log_files+=("$log_file")
   echo "$name started on pid $pid (log: $log_file)"
+}
+
+start_log_tail() {
+  local log_file="$1"
+  tail -n +1 -F "$log_file" &
+  tail_pids+=("$!")
 }
 
 cleanup() {
   local status=$?
   trap - EXIT INT TERM
+
+  if [[ "${#tail_pids[@]}" -gt 0 ]]; then
+    kill "${tail_pids[@]}" 2>/dev/null || true
+    wait "${tail_pids[@]}" 2>/dev/null || true
+  fi
 
   if [[ "${#pids[@]}" -gt 0 ]]; then
     echo "Stopping servers..."
@@ -433,8 +497,10 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 if [[ "$START_HUB" -eq 1 ]]; then
+  SELECTED_CHAT_PROVIDER="$(select_hub_provider)"
   start_process "hub" "$ROOT_DIR/hub" env \
     PORT="$HUB_PORT" \
+    CHAT_PROVIDER="$SELECTED_CHAT_PROVIDER" \
     "$NODE_BIN" hub.js
 fi
 
@@ -447,6 +513,9 @@ if [[ "${#pids[@]}" -eq 0 ]]; then
   exit 0
 fi
 
-echo "Servers are running. Press Ctrl+C to stop."
+echo "Servers are running. Tailing logs; press Ctrl+C to stop."
+for log_file in "${log_files[@]}"; do
+  start_log_tail "$log_file"
+done
 wait -n "${pids[@]}"
 echo "A server exited; stopping the remaining servers."

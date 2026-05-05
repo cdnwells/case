@@ -25,6 +25,11 @@ const MAPPING = {
   'stop.circle.fill': 'stop',
   'speaker.wave.2.fill': 'volume-up',
   'speaker.slash.fill': 'volume-off',
+  'battery.100.bolt': 'battery-charging-full',
+  'paperclip': 'attach-file',
+  'xmark.circle.fill': 'cancel',
+  'trash.fill': 'delete',
+  'square.and.arrow.down.fill': 'save',
 } as const satisfies IconMapping;
 
 /**
