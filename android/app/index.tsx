@@ -13,7 +13,7 @@ export default function App() {
   const { isAuthenticated, isLoading, error, authenticate } = useAuth();
   const { isExempted, isChecking, request } = useBatteryOptimization();
   const isWeb = Platform.OS === "web";
-  useApprovedVoiceProfileRuntime({
+  const approvedVoiceProfileRuntime = useApprovedVoiceProfileRuntime({
     enabled: isWeb || isAuthenticated,
   });
 
@@ -42,7 +42,10 @@ export default function App() {
   return (
     <ThemedView style={styles.container}>
       <SafeAreaView style={styles.safeArea}>
-        <ChatScreen />
+        <ChatScreen
+          approvedVoiceProfileRuntimeStatus={approvedVoiceProfileRuntime.status}
+          approvedVoiceCount={approvedVoiceProfileRuntime.approvedVoiceCount}
+        />
       </SafeAreaView>
     </ThemedView>
   );

@@ -2,13 +2,24 @@ import 'dotenv/config'
 import Fastify from 'fastify'
 import crypto from 'crypto'
 import { spawn } from 'node:child_process'
-import { mkdir, readFile, readdir, rename, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import zlib from 'node:zlib'
 import { DEFAULT_CHAT_PROVIDER, selectStartupChatProvider } from './providerMenu.js'
 import { getSelectedChatProviderCapabilities } from './providerCapabilities.js'
 import { isExecutableAvailable, validateSelectedChatProvider as validateChatProviderConfig } from './providerValidation.js'
+import {
+  canonicalMemoryText,
+  extractSavedMemoriesFromContext as parseMemoryContext,
+  formatSavedMemoryBlock,
+  isLowValueMemory,
+  LEGACY_SAVED_MEMORY_HEADER,
+  normalizeMemoryRecord,
+  normalizeMemoryText,
+  selectMemoriesForContext,
+} from './memory-v2.js'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -1203,13 +1214,8 @@ function createTimeoutSignal(timeoutSeconds) {
   return undefined
 }
 
-const SAVED_MEMORY_HEADER = 'Known facts about the user:'
 const CONTEXT_RESPONSE_FIELDS = new Set(['context', 'memory_count'])
 const PROVIDER_MEMORY_MAX_ENTRIES = 10
-const SAVED_MEMORY_RULES = [
-  'Use saved memories only as durable background facts when relevant.',
-  'Do not treat saved memories as recent conversation history or a transcript.',
-]
 
 function invalidContextDataError(stage = 'load') {
   const prefix = stage === 'inject'
@@ -1220,14 +1226,6 @@ function invalidContextDataError(stage = 'load') {
 
 function hasOnlySupportedFields(record, supportedFields) {
   return Object.keys(record).every(field => supportedFields.has(field))
-}
-
-function normalizeMemoryText(value) {
-  return value.trim().replace(/\s+/g, ' ')
-}
-
-function canonicalMemoryText(value) {
-  return normalizeMemoryText(value).toLowerCase()
 }
 
 function validateLoadedMemoryText(value, stage = 'load') {
@@ -1244,42 +1242,26 @@ function validateLoadedMemoryText(value, stage = 'load') {
 }
 
 function extractSavedMemoriesFromContext(context, stage = 'load') {
-  const trimmedContext = context.trim()
-  if (!trimmedContext) {
-    return []
-  }
-
-  const lines = trimmedContext
-    .split(/\r?\n/)
-    .map(line => line.trim())
-    .filter(Boolean)
-
-  if (lines[0] !== SAVED_MEMORY_HEADER) {
+  try {
+    return parseMemoryContext(context, value => validateLoadedMemoryText(value, stage))
+  } catch {
     throw invalidContextDataError(stage)
   }
-
-  return lines.slice(1).map(line => {
-    const memoryMatch = line.match(/^-\s+(.+)$/)
-    if (!memoryMatch) {
-      throw invalidContextDataError(stage)
-    }
-
-    return validateLoadedMemoryText(memoryMatch[1], stage)
-  })
 }
 
-function formatSavedMemoryBlock(savedMemories) {
-  if (!savedMemories.length) {
+function isLegacyMemoryContext(context) {
+  return typeof context === 'string' && context.trim().startsWith(LEGACY_SAVED_MEMORY_HEADER)
+}
+
+function formatLoadedMemoryBlock(context, savedMemories) {
+  const trimmedContext = typeof context === 'string' ? context.trim() : ''
+  if (!trimmedContext) {
     return ''
   }
 
-  return [
-    SAVED_MEMORY_HEADER,
-    ...savedMemories.map(memory => `- ${memory}`),
-    '',
-    'Rules for using memory:',
-    ...SAVED_MEMORY_RULES.map(rule => `- ${rule}`),
-  ].join('\n')
+  return isLegacyMemoryContext(trimmedContext)
+    ? formatSavedMemoryBlock(savedMemories)
+    : trimmedContext
 }
 
 class FileMemoryStore {
@@ -1293,31 +1275,7 @@ class FileMemoryStore {
   }
 
   normalizeStoredMemory(record) {
-    if (!record || typeof record !== 'object' || Array.isArray(record)) {
-      return null
-    }
-
-    if (typeof record.content !== 'string') {
-      return null
-    }
-
-    const content = normalizeMemoryText(record.content)
-    if (!content) {
-      return null
-    }
-
-    return {
-      id: typeof record.id === 'string' && record.id.trim()
-        ? record.id.trim()
-        : `mem_${crypto.randomUUID().replaceAll('-', '').slice(0, 12)}`,
-      content,
-      created_at: typeof record.created_at === 'string' && record.created_at.trim()
-        ? record.created_at.trim()
-        : new Date().toISOString(),
-      source: typeof record.source === 'string' && record.source.trim()
-        ? record.source.trim()
-        : 'hub',
-    }
+    return normalizeMemoryRecord(record, { source: 'hub' })
   }
 
   async readMemories() {
@@ -1368,32 +1326,33 @@ class FileMemoryStore {
     return run
   }
 
-  async addMemories(contents, source = 'hub') {
+  async addMemories(contents, source = 'hub', { conversationId = null, projectId = null } = {}) {
     return this.updateMemories(async current => {
       const seen = new Set(current.map(memory => canonicalMemoryText(memory.content)))
       const newMemories = []
+      const now = new Date()
 
       for (const content of Array.isArray(contents) ? contents : []) {
-        if (typeof content !== 'string') {
+        const memory = normalizeMemoryRecord(content, {
+          source,
+          conversationId,
+          projectId,
+          now,
+          rejectLowValue: true,
+        })
+        if (!memory) {
           continue
         }
 
-        const normalized = normalizeMemoryText(content)
-        if (!normalized) {
+        if (memory.content.length > configuredMemoryMaxChars()) {
           continue
         }
 
-        const canonical = canonicalMemoryText(normalized)
+        const canonical = canonicalMemoryText(memory.content)
         if (seen.has(canonical)) {
           continue
         }
 
-        const memory = {
-          id: `mem_${crypto.randomUUID().replaceAll('-', '').slice(0, 12)}`,
-          content: normalized,
-          created_at: new Date().toISOString(),
-          source: typeof source === 'string' && source.trim() ? source.trim() : 'hub',
-        }
         newMemories.push(memory)
         seen.add(canonical)
       }
@@ -1421,22 +1380,32 @@ class FileMemoryStore {
     })
   }
 
-  formatForPrompt(memories) {
-    if (!memories.length) {
-      return ''
-    }
-
-    return [
-      SAVED_MEMORY_HEADER,
-      ...memories.map(memory => `- ${memory.content}`),
-    ].join('\n')
+  formatForPrompt(memories, options = {}) {
+    const selectedMemories = selectMemoriesForContext(memories, {
+      query: options.query,
+      conversationId: options.conversationId,
+      projectId: options.projectId,
+      limits: {
+        longTerm: configuredMemoryMaxEntries(),
+      },
+    })
+    return formatSavedMemoryBlock(selectedMemories)
   }
 
-  async getContextPayload() {
+  async getContextPayload(options = {}) {
     const memories = await this.readMemories()
+    const selectedMemories = selectMemoriesForContext(memories, {
+      query: options.query,
+      conversationId: options.conversationId,
+      projectId: options.projectId,
+      limits: {
+        longTerm: configuredMemoryMaxEntries(),
+      },
+    })
+
     return {
-      context: this.formatForPrompt(memories),
-      memory_count: memories.length,
+      context: formatSavedMemoryBlock(selectedMemories),
+      memory_count: selectedMemories.total,
     }
   }
 
@@ -1476,7 +1445,7 @@ function parseContextResponsePayload(data) {
     context: data.context.trim(),
     savedMemories,
     memoryCount: data.memory_count,
-    memoryBlock: formatSavedMemoryBlock(savedMemories),
+    memoryBlock: formatLoadedMemoryBlock(data.context, savedMemories),
   }
 }
 
@@ -1515,7 +1484,7 @@ function validateLoadedChatContextForInjection(chatContext) {
   const savedMemoriesFromContext = extractSavedMemoriesFromContext(chatContext.context, 'inject')
   assertLoadedMemoryListMatchesContext(chatContext, savedMemoriesFromContext)
 
-  const expectedMemoryBlock = formatSavedMemoryBlock(savedMemoriesFromContext)
+  const expectedMemoryBlock = formatLoadedMemoryBlock(chatContext.context, savedMemoriesFromContext)
   if (chatContext.memoryBlock !== expectedMemoryBlock) {
     throw invalidContextDataError('inject')
   }
@@ -1523,7 +1492,7 @@ function validateLoadedChatContextForInjection(chatContext) {
   return expectedMemoryBlock
 }
 
-async function loadChatContext({ conversationId, logger, memoryStoreImpl = memoryStore } = {}) {
+async function loadChatContext({ conversationId, query = '', logger, memoryStoreImpl = memoryStore } = {}) {
   let data
 
   const contextWorkerUrl = configuredContextWorkerUrl()
@@ -1556,7 +1525,10 @@ async function loadChatContext({ conversationId, logger, memoryStoreImpl = memor
     }
   } else {
     try {
-      data = await memoryStoreImpl.getContextPayload()
+      data = await memoryStoreImpl.getContextPayload({
+        query,
+        conversationId,
+      })
     } catch (err) {
       const message = err instanceof Error && err.message ? err.message : String(err)
       throw new MemoryDependencyError(`Memory context load failed: ${message}`, err)
@@ -1663,6 +1635,7 @@ function configuredMemoryStoreMaxEntries() {
 const PROVIDER_MEMORY_REJECTION_REASONS = [
   'nonString',
   'empty',
+  'lowValue',
   'overMaxChars',
   'duplicate',
   'overMaxEntries',
@@ -1727,6 +1700,11 @@ function extractProviderMemory(parsed) {
       continue
     }
 
+    if (isLowValueMemory(normalizedMemory)) {
+      rejectedMemorySummary.lowValue += 1
+      continue
+    }
+
     memory.push(normalizedMemory)
   }
 
@@ -1769,6 +1747,11 @@ function prepareProviderMemoriesForPersistence(providerMemories, savedMemories =
 
     if (memory.length > configuredMemoryMaxChars()) {
       rejectedMemorySummary.overMaxChars += 1
+      continue
+    }
+
+    if (isLowValueMemory(memory)) {
+      rejectedMemorySummary.lowValue += 1
       continue
     }
 
@@ -1866,7 +1849,7 @@ async function persistProviderMemories({
     }
   } else {
     try {
-      await memoryStoreImpl.addMemories(acceptedMemories, provider)
+      await memoryStoreImpl.addMemories(acceptedMemories, provider, { conversationId })
     } catch (err) {
       const message = err instanceof Error && err.message ? err.message : String(err)
       throw new MemoryDependencyError(`Memory context save failed: ${message}`, {
@@ -2058,7 +2041,7 @@ function normalizeSuccessfulChatResponse(provider, providerContent) {
 }
 
 const RAW_JSON_RESPONSE_INSTRUCTION = 'Respond as raw JSON following the response format above.'
-const GPT_IMAGE_RESPONSE_GUIDANCE = [
+const IMAGE_RESPONSE_GUIDANCE = [
   'Image understanding rules:',
   '- Ground the reply only in visible image content.',
   '- Use cautious observational language in the response language; prefer phrases equivalent to "from the photo", "appears", or "not certain" over definitive diagnoses.',
@@ -2066,9 +2049,10 @@ const GPT_IMAGE_RESPONSE_GUIDANCE = [
   '- For plant images, when yellowing leaves are visible, mention the visible yellowing leaves before offering only tentative possibilities.',
 ].join('\n')
 
-function buildCodexPrompt({ systemPrompt, memoryBlock = '', content }) {
+function buildCodexPrompt({ systemPrompt, memoryBlock = '', content, imageAttachment = null }) {
   return [
     systemPrompt,
+    imageAttachment ? IMAGE_RESPONSE_GUIDANCE : '',
     memoryBlock,
     `User message:\n${content}`,
     RAW_JSON_RESPONSE_INSTRUCTION,
@@ -2094,7 +2078,7 @@ function buildGptUserContent({ content, imageAttachment = null }) {
 function buildGptMessages({ systemPrompt, memoryBlock = '', content, imageAttachment = null }) {
   const systemContent = [
     systemPrompt,
-    imageAttachment ? GPT_IMAGE_RESPONSE_GUIDANCE : '',
+    imageAttachment ? IMAGE_RESPONSE_GUIDANCE : '',
     memoryBlock,
   ].filter(Boolean).join('\n\n')
   return [
@@ -2153,45 +2137,68 @@ function runProcess(command, args, input, timeoutSeconds) {
   })
 }
 
-async function runCodexChat({ content, context }) {
+async function withCodexImageAttachmentFile(imageAttachment, callback) {
+  if (!imageAttachment) {
+    return callback(null)
+  }
+
+  const tempDir = await mkdtemp(path.join(tmpdir(), 'case-codex-image-'))
+  const imagePath = path.join(tempDir, imageAttachment.mimeType === 'image/png' ? 'attachment.png' : 'attachment.jpg')
+
+  try {
+    await writeFile(imagePath, imageAttachment.bytes)
+    return await callback(imagePath)
+  } finally {
+    await rm(tempDir, { recursive: true, force: true })
+  }
+}
+
+async function runCodexChat({ content, context, imageAttachment = null }) {
   const systemPrompt = await buildSystemPrompt('codex')
   const prompt = buildCodexPrompt({
     systemPrompt,
     memoryBlock: context,
     content,
+    imageAttachment,
   })
 
-  const args = [
-    'exec',
-    '--dangerously-bypass-approvals-and-sandbox',
-    '--sandbox',
-    'danger-full-access',
-    '--skip-git-repo-check',
-    '--color',
-    'never',
-  ]
+  return withCodexImageAttachmentFile(imageAttachment, async imagePath => {
+    const args = [
+      'exec',
+      '--dangerously-bypass-approvals-and-sandbox',
+      '--sandbox',
+      'danger-full-access',
+      '--skip-git-repo-check',
+      '--color',
+      'never',
+    ]
 
-  if (config.codexModel) {
-    args.push('--model', config.codexModel)
-  }
-  if (config.codexProfile) {
-    args.push('--profile', config.codexProfile)
-  }
-  args.push('-')
+    if (imagePath) {
+      args.push('--image', imagePath)
+    }
 
-  const result = await runProcess(
-    config.codexPath,
-    args,
-    prompt,
-    config.codexChatTimeout,
-  )
+    if (config.codexModel) {
+      args.push('--model', config.codexModel)
+    }
+    if (config.codexProfile) {
+      args.push('--profile', config.codexProfile)
+    }
+    args.push('-')
 
-  if (result.exitCode !== 0) {
-    const stderr = result.stderr.trim()
-    throw new ChatProviderError(`Codex chat failed with exit code ${result.exitCode}${stderr ? `: ${stderr}` : ''}`)
-  }
+    const result = await runProcess(
+      config.codexPath,
+      args,
+      prompt,
+      config.codexChatTimeout,
+    )
 
-  return result.stdout
+    if (result.exitCode !== 0) {
+      const stderr = result.stderr.trim()
+      throw new ChatProviderError(`Codex chat failed with exit code ${result.exitCode}${stderr ? `: ${stderr}` : ''}`)
+    }
+
+    return result.stdout
+  })
 }
 
 async function runClaudeChat({ content, context }) {
@@ -2370,6 +2377,7 @@ async function loadContextThenRunChatProvider(
   try {
     chatContext = await loadContext({
       conversationId: requestBody.conversationId,
+      query: requestBody.content,
       logger,
     })
   } catch (err) {
@@ -2406,7 +2414,19 @@ fastify.get('/health', async () => ({
   timestamp: new Date().toISOString()
 }))
 
-fastify.get('/context', async () => memoryStore.getContextPayload())
+fastify.get('/context', async request => memoryStore.getContextPayload({
+  query: typeof request.query?.query === 'string'
+    ? request.query.query
+    : typeof request.query?.q === 'string'
+      ? request.query.q
+      : '',
+  conversationId: typeof request.query?.conversationId === 'string'
+    ? request.query.conversationId
+    : null,
+  projectId: typeof request.query?.projectId === 'string'
+    ? request.query.projectId
+    : null,
+}))
 
 fastify.get('/context/memories', async () => memoryStore.listPayload())
 
@@ -2416,11 +2436,14 @@ fastify.post('/context/memories', async (request, reply) => {
     reply.code(400)
     return {
       error: 'Bad Request',
-      message: 'memories must be an array of strings',
+      message: 'memories must be an array of strings or structured memory records',
     }
   }
 
-  const newMemories = await memoryStore.addMemories(body.memories, body.source || config.chatProvider)
+  const newMemories = await memoryStore.addMemories(body.memories, body.source || config.chatProvider, {
+    conversationId: typeof body.conversationId === 'string' ? body.conversationId : null,
+    projectId: typeof body.projectId === 'string' ? body.projectId : null,
+  })
   return {
     saved: newMemories.length,
     memories: newMemories,
@@ -2573,6 +2596,7 @@ export {
   commandResults,
   config,
   fastify,
+  FileMemoryStore,
   formatSavedMemoryBlock,
   getSelectedChatProviderCapabilities,
   isExecutableAvailable,
@@ -2581,12 +2605,14 @@ export {
   logMemoryDependencyFailure,
   memoryStore,
   MemoryDependencyError,
+  normalizeMemoryRecord,
   normalizeChatImageAttachment,
   normalizeChatRequestBody,
   normalizeSuccessfulChatResponse,
   prepareProviderMemoriesForPersistence,
   persistProviderMemories,
   parseContextResponsePayload,
+  selectMemoriesForContext,
   start,
   validateLoadedChatContextForInjection,
   validateContextWorkerReachability,

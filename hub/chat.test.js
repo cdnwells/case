@@ -43,6 +43,8 @@ test.after(async () => {
   delete process.env.FAKE_CODEX_EXPECT_PROMPT_CONTAINS
   delete process.env.FAKE_CODEX_REJECT_PROMPT_CONTAINS
   delete process.env.FAKE_CODEX_EXPECT_PROMPT_SEQUENCE
+  delete process.env.FAKE_CODEX_CAPTURE_ARGS_PATH
+  delete process.env.FAKE_CODEX_CAPTURE_IMAGES_PATH
   delete process.env.FAKE_CODEX_CAPTURE_PROMPT_PATH
   delete process.env.FAKE_CODEX_RESPONSE
   delete process.env.FAKE_CLAUDE_RESPONSE
@@ -57,6 +59,8 @@ test.beforeEach(() => {
   delete process.env.FAKE_CODEX_EXPECT_PROMPT_CONTAINS
   delete process.env.FAKE_CODEX_REJECT_PROMPT_CONTAINS
   delete process.env.FAKE_CODEX_EXPECT_PROMPT_SEQUENCE
+  delete process.env.FAKE_CODEX_CAPTURE_ARGS_PATH
+  delete process.env.FAKE_CODEX_CAPTURE_IMAGES_PATH
   delete process.env.FAKE_CODEX_CAPTURE_PROMPT_PATH
   delete process.env.FAKE_CODEX_RESPONSE
   delete process.env.FAKE_CLAUDE_RESPONSE
@@ -355,13 +359,20 @@ test('formatSavedMemoryBlock builds the shared provider memory block', () => {
     'User prefers concise replies.',
     'Project Case is a backend-first Android assistant.',
   ]), [
-    'Known facts about the user:',
-    '- User prefers concise replies.',
-    '- Project Case is a backend-first Android assistant.',
+    'Core Memory:',
+    '- None selected.',
     '',
-    'Rules for using memory:',
+    'Working Memory:',
+    '- None selected.',
+    '',
+    'Relevant Long-term Memories:',
+    '- [semantic/user] User prefers concise replies.',
+    '- [semantic/project] Project Case is a backend-first Android assistant.',
+    '',
+    'Memory Rules:',
     '- Use saved memories only as durable background facts when relevant.',
     '- Do not treat saved memories as recent conversation history or a transcript.',
+    '- Prefer the current user message when it conflicts with memory.',
   ].join('\n'))
 
   assert.equal(formatSavedMemoryBlock([]), '')
@@ -667,6 +678,42 @@ test('loadContextThenRunChatProvider preserves normalized JPEG attachment throug
   assert.equal(providerCalled, true)
 })
 
+test('loadContextThenRunChatProvider allows Codex image attachments through provider dispatch', async () => {
+  config.chatProvider = 'codex'
+  config.codexModel = 'gpt-5.2'
+
+  const requestBody = normalizeChatRequestBody({
+    content: 'describe this image with codex',
+    conversationId: 'codex-image-service-dispatch-test',
+    attachments: [createAcceptedJpegAttachment()],
+  })
+  const chatContext = parsedChatContextFromMemories([
+    'User prefers careful visual descriptions.',
+  ])
+  let providerCalled = false
+
+  const result = await loadContextThenRunChatProvider('codex', requestBody, {
+    logger: { info() {} },
+    loadContext: async ({ conversationId }) => {
+      assert.equal(conversationId, 'codex-image-service-dispatch-test')
+      return chatContext
+    },
+    dispatchProvider: async (provider, dispatchedRequestBody, context) => {
+      providerCalled = true
+      assert.equal(provider, 'codex')
+      assert.equal(dispatchedRequestBody, requestBody)
+      assert.equal(context, chatContext.memoryBlock)
+      assert.equal(dispatchedRequestBody.attachments.length, 1)
+      assert.equal(dispatchedRequestBody.attachments[0].mimeType, 'image/jpeg')
+      assert.equal(Buffer.isBuffer(dispatchedRequestBody.attachments[0].bytes), true)
+      return JSON.stringify({ message: 'codex saw image' })
+    },
+  })
+
+  assert.equal(providerCalled, true)
+  assert.equal(result.providerContent, JSON.stringify({ message: 'codex saw image' }))
+})
+
 test('loadContextThenRunChatProvider rejects image attachments for unsupported provider/model before context load and provider dispatch', async (t) => {
   const requestBody = normalizeChatRequestBody({
     content: 'describe this image',
@@ -674,14 +721,6 @@ test('loadContextThenRunChatProvider rejects image attachments for unsupported p
     attachments: [createAcceptedJpegAttachment()],
   })
   const cases = [
-    {
-      provider: 'codex',
-      configure: () => {
-        config.chatProvider = 'codex'
-        config.codexModel = 'gpt-5.2'
-      },
-      expectedMessage: /Image understanding requires a multimodal provider\/model.*selected provider "codex".*does not support image input in Case v1/,
-    },
     {
       provider: 'claude',
       configure: () => {
@@ -1573,15 +1612,10 @@ test('loadChatContext extracts saved memories into the internal chat context', a
       'User prefers concise replies.',
       'Project Case is a backend-first Android assistant.',
     ])
-    assert.equal(chatContext.memoryBlock, [
-      'Known facts about the user:',
-      '- User prefers concise replies.',
-      '- Project Case is a backend-first Android assistant.',
-      '',
-      'Rules for using memory:',
-      '- Use saved memories only as durable background facts when relevant.',
-      '- Do not treat saved memories as recent conversation history or a transcript.',
-    ].join('\n'))
+    assert.equal(chatContext.memoryBlock, formatSavedMemoryBlock([
+      'User prefers concise replies.',
+      'Project Case is a backend-first Android assistant.',
+    ]))
     assert.equal(fetchCalls.length, 1)
     assertContextFetch(fetchCalls[0])
   } finally {
@@ -1937,7 +1971,7 @@ test('loadContextThenRunChatProvider injects validated loaded memory context for
           assert.equal(requestBody.content, 'use saved memory')
           assert.equal(requestBody.conversationId, `${provider}-valid-loaded-memory-test`)
           assert.equal(context, chatContext.memoryBlock)
-          assert.equal(context.includes('Rules for using memory:'), true)
+          assert.equal(context.includes('Memory Rules:'), true)
           return providerContent
         },
       })
@@ -2260,20 +2294,15 @@ test('POST /chat injects curated saved memories from GET /context into gpt provi
   config.openaiBaseUrl = 'http://openai.test/v1'
   config.openaiModel = 'gpt-test-model'
 
+  const savedMemories = [
+    'User prefers concise replies.',
+    'Project Case is a backend-first Android assistant.',
+  ]
   const savedMemoryContext = [
     'Known facts about the user:',
-    '- User prefers concise replies.',
-    '- Project Case is a backend-first Android assistant.',
+    ...savedMemories.map(memory => `- ${memory}`),
   ].join('\n')
-  const expectedMemoryBlock = [
-    'Known facts about the user:',
-    '- User prefers concise replies.',
-    '- Project Case is a backend-first Android assistant.',
-    '',
-    'Rules for using memory:',
-    '- Use saved memories only as durable background facts when relevant.',
-    '- Do not treat saved memories as recent conversation history or a transcript.',
-  ].join('\n')
+  const expectedMemoryBlock = formatSavedMemoryBlock(savedMemories)
 
   const fetchCalls = mockContextFetch({
     context: savedMemoryContext,
@@ -2373,15 +2402,7 @@ test('POST /chat sends exact GPT messages with injected curated saved memories',
       expectedMemoryBlock,
     ].join('\n\n')
 
-    assert.equal(expectedMemoryBlock, [
-      'Known facts about the user:',
-      '- User prefers concise replies.',
-      '- Project Case is a backend-first Android assistant.',
-      '',
-      'Rules for using memory:',
-      '- Use saved memories only as durable background facts when relevant.',
-      '- Do not treat saved memories as recent conversation history or a transcript.',
-    ].join('\n'))
+    assert.equal(expectedMemoryBlock, formatSavedMemoryBlock(savedMemories))
     assert.equal(requestBody.messages[0].content, expectedSystemContent)
     assert.equal(
       requestBody.messages[0].content.slice(expectedSystemPrompt.length + 2),
@@ -2457,15 +2478,7 @@ test('POST /chat sends exact Codex prompt with injected curated saved memories',
     'Known facts about the user:',
     ...savedMemories.map(memory => `- ${memory}`),
   ].join('\n')
-  const expectedMemoryBlock = [
-    'Known facts about the user:',
-    '- User prefers concise replies.',
-    '- Project Case is a backend-first Android assistant.',
-    '',
-    'Rules for using memory:',
-    '- Use saved memories only as durable background facts when relevant.',
-    '- Do not treat saved memories as recent conversation history or a transcript.',
-  ].join('\n')
+  const expectedMemoryBlock = formatSavedMemoryBlock(savedMemories)
   const expectedPrompt = [
     await buildExpectedCodexSystemPrompt(),
     expectedMemoryBlock,
@@ -3649,7 +3662,7 @@ test('POST /chat with gpt returns HTTP 200 and Android message fields', async ()
     assert.equal(options.headers['content-type'], 'application/json')
     const requestBody = JSON.parse(options.body)
     assert.equal(requestBody.model, 'gpt-test-model')
-    assert.match(requestBody.messages[0].content, /Known facts about the user/)
+    assert.match(requestBody.messages[0].content, /Relevant Long-term Memories/)
   } finally {
     globalThis.fetch = originalFetch
   }
@@ -4508,6 +4521,69 @@ test('POST /chat sends accepted PNG attachment data and metadata in GPT payload'
   }
 })
 
+test('POST /chat sends accepted JPEG attachment to Codex CLI as an image file', async () => {
+  config.chatProvider = 'codex'
+  config.codexModel = 'gpt-5.2'
+
+  const imageAttachment = createAcceptedJpegAttachment()
+  const tempDir = await mkdtemp(path.join(tmpdir(), 'case-codex-image-capture-'))
+  const argsPath = path.join(tempDir, 'args.json')
+  const imagesPath = path.join(tempDir, 'images.json')
+  const promptPath = path.join(tempDir, 'prompt.txt')
+  const fetchCalls = mockContextFetch()
+
+  process.env.FAKE_CODEX_CAPTURE_ARGS_PATH = argsPath
+  process.env.FAKE_CODEX_CAPTURE_IMAGES_PATH = imagesPath
+  process.env.FAKE_CODEX_CAPTURE_PROMPT_PATH = promptPath
+  process.env.FAKE_CODEX_RESPONSE = JSON.stringify({
+    message: 'codex described the image',
+  })
+
+  try {
+    const response = await postChat({
+      content: 'describe the attached image',
+      conversationId: 'codex-image-file-payload-test',
+      attachments: [imageAttachment],
+    })
+
+    assert.equal(response.statusCode, 200)
+    assert.equal(response.json().message.content, 'codex described the image')
+    assert.equal(fetchCalls.length, 1)
+    assertContextFetch(fetchCalls[0])
+
+    const args = JSON.parse(await readFile(argsPath, 'utf8'))
+    const imageFlagIndex = args.indexOf('--image')
+    assert.notEqual(imageFlagIndex, -1)
+    assert.equal(args[0], 'exec')
+    assert.equal(args.at(-1), '-')
+    assert.equal(args.includes('--model'), true)
+    assert.equal(args[args.indexOf('--model') + 1], 'gpt-5.2')
+
+    const imagePath = args[imageFlagIndex + 1]
+    assert.match(imagePath, /case-codex-image-/)
+    assert.equal(path.extname(imagePath), '.jpg')
+
+    const images = JSON.parse(await readFile(imagesPath, 'utf8'))
+    assert.deepEqual(images, [{
+      path: imagePath,
+      exists: true,
+      sizeBytes: imageAttachment.sizeBytes,
+      dataBase64: imageAttachment.dataBase64,
+    }])
+
+    const capturedPrompt = await readFile(promptPath, 'utf8')
+    assert.match(capturedPrompt, /Ground the reply only in visible image content/)
+    await assert.rejects(() => readFile(imagePath), /ENOENT/)
+  } finally {
+    delete process.env.FAKE_CODEX_CAPTURE_ARGS_PATH
+    delete process.env.FAKE_CODEX_CAPTURE_IMAGES_PATH
+    delete process.env.FAKE_CODEX_CAPTURE_PROMPT_PATH
+    delete process.env.FAKE_CODEX_RESPONSE
+    globalThis.fetch = originalFetch
+    await rm(tempDir, { recursive: true, force: true })
+  }
+})
+
 test('POST /chat rejects GPT image requests when OPENAI_MODEL is not vision-capable before context or provider calls', async () => {
   config.chatProvider = 'gpt'
   config.openaiApiKey = 'test-openai-key'
@@ -4542,16 +4618,8 @@ test('POST /chat rejects GPT image requests when OPENAI_MODEL is not vision-capa
   }
 })
 
-test('POST /chat rejects non-GPT image requests before context or provider calls', async (t) => {
+test('POST /chat rejects providers without image transport before context or provider calls', async (t) => {
   const cases = [
-    {
-      provider: 'codex',
-      configure: () => {
-        config.chatProvider = 'codex'
-        config.codexModel = 'gpt-5.2'
-      },
-      expectedMessage: /Image understanding requires a multimodal provider\/model.*selected provider "codex".*does not support image input in Case v1/,
-    },
     {
       provider: 'claude',
       configure: () => {
@@ -4864,15 +4932,7 @@ test('POST /chat sends exact Ollama messages with injected curated saved memorie
       expectedMemoryBlock,
     ].join('\n\n')
 
-    assert.equal(expectedMemoryBlock, [
-      'Known facts about the user:',
-      '- User prefers concise replies.',
-      '- Project Case is a backend-first Android assistant.',
-      '',
-      'Rules for using memory:',
-      '- Use saved memories only as durable background facts when relevant.',
-      '- Do not treat saved memories as recent conversation history or a transcript.',
-    ].join('\n'))
+    assert.equal(expectedMemoryBlock, formatSavedMemoryBlock(savedMemories))
     assert.equal(requestBody.messages[0].content, expectedSystemContent)
     assert.equal(
       requestBody.messages[0].content.slice(expectedSystemPrompt.length + 2),

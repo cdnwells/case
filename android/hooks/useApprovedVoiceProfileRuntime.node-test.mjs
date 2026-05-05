@@ -54,8 +54,18 @@ expectIncludes(
 expectBefore(
   appSource,
   "useApprovedVoiceProfileRuntime({",
-  "<ChatScreen />",
+  "<ChatScreen",
   "app starts approved voice profile loading before rendering chat",
+);
+expectIncludes(
+  appSource,
+  "approvedVoiceProfileRuntimeStatus={approvedVoiceProfileRuntime.status}",
+  "app passes approved voice runtime status into chat",
+);
+expectIncludes(
+  appSource,
+  "approvedVoiceCount={approvedVoiceProfileRuntime.approvedVoiceCount}",
+  "app passes loaded approved voice count into chat",
 );
 expectIncludes(
   storageSource,

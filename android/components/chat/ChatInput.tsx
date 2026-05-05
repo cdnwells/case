@@ -11,6 +11,8 @@ import {
 } from "@/services/voice/approvedAudioExplicitSaveFlow";
 import { useTextToSpeech } from "@/hooks/useTextToSpeech";
 import { useVoiceInput } from "@/hooks/useVoiceInput";
+import { useWakeWord } from "@/hooks/useWakeWord";
+import type { ApprovedVoiceProfileRuntimeStatus } from "@/hooks/useApprovedVoiceProfileRuntime";
 import type { ChatImageAttachmentRequest } from "@/types/chat";
 import { File } from "expo-file-system";
 import * as Haptics from "expo-haptics";
@@ -55,6 +57,8 @@ interface ChatInputProps {
   disabled?: boolean;
   lastAssistantMessage?: string;
   onLocalMessage?: (content: string, role?: "user" | "assistant") => void;
+  approvedVoiceProfileRuntimeStatus?: ApprovedVoiceProfileRuntimeStatus;
+  approvedVoiceCount?: number;
 }
 
 function decodeSelectedImageAttachment(
@@ -74,6 +78,8 @@ export function ChatInput({
   disabled,
   lastAssistantMessage,
   onLocalMessage,
+  approvedVoiceProfileRuntimeStatus = "ready",
+  approvedVoiceCount = 0,
 }: ChatInputProps) {
   const [text, setText] = useState("");
   const [selectedImageAttachment, setSelectedImageAttachment] =
@@ -89,7 +95,7 @@ export function ChatInput({
     useState<string | null>(null);
   const [isSavingApprovedAudio, setIsSavingApprovedAudio] = useState(false);
   const hasStartedRecording = useRef(false);
-  const approvedVoiceGateAcceptedRef = useRef(false);
+  const voiceInputCanSubmitRef = useRef(false);
   const textInputRef = useRef<TextInput>(null);
   const colorScheme = useColorScheme();
 
@@ -141,13 +147,13 @@ export function ChatInput({
     cancelRecording,
   } = useVoiceInput({
     onTranscript: (transcript) => {
-      if (!approvedVoiceGateAcceptedRef.current) {
+      if (!voiceInputCanSubmitRef.current) {
         setText("");
         setIsVoiceMode(false);
         clearApprovedAudioSaveFlow();
         return;
       }
-      approvedVoiceGateAcceptedRef.current = false;
+      voiceInputCanSubmitRef.current = false;
       clearApprovedAudioSaveFlow();
       setText(transcript);
       if (transcript.trim()) {
@@ -162,6 +168,22 @@ export function ChatInput({
     active: isVoiceMode,
     requireApprovedVoiceGate: true,
   });
+
+  const canListenForVoiceActivation =
+    !disabled &&
+    !isVoiceMode &&
+    !isRecording &&
+    !isProcessing &&
+    !isSpeaking &&
+    !isPickingAttachment &&
+    !isPreparingAttachment;
+  const approvedVoiceGateEnabled =
+    approvedVoiceCount > 0 && canListenForVoiceActivation;
+  const wakeWordFallbackEnabled =
+    Platform.OS !== "web" &&
+    approvedVoiceCount === 0 &&
+    approvedVoiceProfileRuntimeStatus !== "loading" &&
+    canListenForVoiceActivation;
 
   // Track when recording actually starts
   useEffect(() => {
@@ -181,7 +203,7 @@ export function ChatInput({
     ) {
       setIsVoiceMode(false);
       hasStartedRecording.current = false;
-      approvedVoiceGateAcceptedRef.current = false;
+      voiceInputCanSubmitRef.current = false;
       clearApprovedAudioSaveFlow();
     }
   }, [
@@ -201,7 +223,7 @@ export function ChatInput({
     }
 
     hasStartedRecording.current = false;
-    approvedVoiceGateAcceptedRef.current = true;
+    voiceInputCanSubmitRef.current = true;
     setApprovedAudioSaveCandidate(result);
     setApprovedAudioSavePurpose("");
     setApprovedAudioSaveError(null);
@@ -220,7 +242,7 @@ export function ChatInput({
       releaseCapturedAudio: result.releaseCapturedAudio,
     });
     if (!started) {
-      approvedVoiceGateAcceptedRef.current = false;
+      voiceInputCanSubmitRef.current = false;
       setIsVoiceMode(false);
       clearApprovedAudioSaveFlow();
       return;
@@ -240,9 +262,52 @@ export function ChatInput({
     clearApprovedAudioSaveFlow,
   ]);
 
+  const handleWakeWordDetected = useCallback(async () => {
+    if (!wakeWordFallbackEnabled) return;
+
+    if (isSpeaking) {
+      stopSpeaking();
+    }
+
+    hasStartedRecording.current = false;
+    voiceInputCanSubmitRef.current = true;
+    clearApprovedAudioSaveFlow();
+    setIsVoiceMode(true);
+    textInputRef.current?.blur();
+
+    const started = await startRecording({
+      approvedVoiceGateRequired: false,
+    });
+    if (!started) {
+      voiceInputCanSubmitRef.current = false;
+      setIsVoiceMode(false);
+      clearApprovedAudioSaveFlow();
+      return;
+    }
+
+    if (Platform.OS !== "web") {
+      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy).catch(() => {
+        // Voice processing has already started; haptics must stay off the path.
+      });
+    }
+
+    setIsTTSEnabled(true);
+  }, [
+    wakeWordFallbackEnabled,
+    isSpeaking,
+    stopSpeaking,
+    startRecording,
+    clearApprovedAudioSaveFlow,
+  ]);
+
   useApprovedVoiceGate({
-    enabled: !isVoiceMode && !isRecording && !isProcessing && !isSpeaking,
+    enabled: approvedVoiceGateEnabled,
     onApprovedVoiceDetected: handleApprovedVoiceDetected,
+  });
+
+  useWakeWord({
+    enabled: wakeWordFallbackEnabled,
+    onDetected: handleWakeWordDetected,
   });
 
   // Pulse animation for send button in voice mode
@@ -411,9 +476,29 @@ export function ChatInput({
   }, [approvedAudioSaveCandidate, clearApprovedAudioSaveFlow]);
 
   const handleLongPressStart = async () => {
+    if (disabled || isVoiceMode || isRecording || isProcessing) {
+      return;
+    }
+
+    if (isSpeaking) {
+      stopSpeaking();
+    }
+
     clearApprovedAudioSaveFlow();
-    approvedVoiceGateAcceptedRef.current = false;
-    await startRecording();
+    voiceInputCanSubmitRef.current = true;
+    hasStartedRecording.current = false;
+    setIsVoiceMode(true);
+    textInputRef.current?.blur();
+
+    const started = await startRecording({
+      approvedVoiceGateRequired: false,
+    });
+    if (!started) {
+      setIsVoiceMode(false);
+      clearApprovedAudioSaveFlow();
+      voiceInputCanSubmitRef.current = false;
+      return;
+    }
   };
 
   const handleStopVoiceInput = async () => {
@@ -427,7 +512,7 @@ export function ChatInput({
     if (isRecording) {
       cancelRecording();
       setIsVoiceMode(false);
-      approvedVoiceGateAcceptedRef.current = false;
+      voiceInputCanSubmitRef.current = false;
       clearApprovedAudioSaveFlow();
     }
   };

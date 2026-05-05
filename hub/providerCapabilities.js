@@ -16,7 +16,7 @@ export const CHAT_PROVIDER_CAPABILITY_METADATA = Object.freeze({
     provider: 'codex',
     modelConfigKey: 'codexModel',
     modelEnvVar: 'CODEX_MODEL',
-    imageUnderstandingTransport: null,
+    imageUnderstandingTransport: 'codex-cli-image-file',
   }),
   claude: Object.freeze({
     provider: 'claude',
@@ -87,8 +87,9 @@ export function getProviderModelCapabilityMetadata(provider, model = '') {
     }
   }
 
-  const supportsImageUnderstanding = provider === 'gpt' &&
-    supportsOpenAiImageUnderstandingModel(normalizedModel)
+  const supportsImageUnderstanding =
+    provider === 'codex' ||
+    (provider === 'gpt' && supportsOpenAiImageUnderstandingModel(normalizedModel))
 
   return {
     provider,

@@ -44,6 +44,21 @@ const approvedVoiceGateBindingSource = chatInputSource.slice(
   chatInputSource.indexOf("useApprovedVoiceGate({"),
   chatInputSource.indexOf("// Pulse animation", approvedVoiceHandlerStart),
 );
+const wakeWordHandlerStart = chatInputSource.indexOf(
+  "const handleWakeWordDetected",
+);
+const wakeWordHandlerSource = chatInputSource.slice(
+  wakeWordHandlerStart,
+  chatInputSource.indexOf("useApprovedVoiceGate({", wakeWordHandlerStart),
+);
+const wakeWordBindingSource = chatInputSource.slice(
+  chatInputSource.indexOf("useWakeWord({"),
+  chatInputSource.indexOf("// Pulse animation", approvedVoiceHandlerStart),
+);
+const longPressHandlerSource = chatInputSource.slice(
+  chatInputSource.indexOf("const handleLongPressStart"),
+  chatInputSource.indexOf("const handleStopVoiceInput"),
+);
 const voiceInputBindingSource = chatInputSource.slice(
   chatInputSource.indexOf("useVoiceInput({"),
   chatInputSource.indexOf("// Track when recording actually starts"),
@@ -69,15 +84,30 @@ expectIncludes(
   "saveApprovedAudioForUserVisibleLaterUse",
   "chat input imports the explicit approved-audio save flow",
 );
-expectNotIncludes(
+expectIncludes(
   chatInputSource,
   "useWakeWord",
-  "chat input continuous listening path does not depend on the wake-word hook",
+  "chat input imports the wake-word hook for always-listening fallback",
 );
 expectNotIncludes(
   chatInputSource,
   "wakeWords",
-  "chat input does not configure wake-word phrases before speech processing",
+  "chat input uses the wake-word hook defaults instead of redefining phrases inline",
+);
+expectIncludes(
+  chatInputSource,
+  "approvedVoiceCount === 0",
+  "chat input enables wake-word fallback only when no approved voice profiles are loaded",
+);
+expectIncludes(
+  chatInputSource,
+  'approvedVoiceProfileRuntimeStatus !== "loading"',
+  "chat input waits for approved voice profile loading before starting wake-word fallback",
+);
+expectIncludes(
+  approvedVoiceGateBindingSource,
+  "enabled: approvedVoiceGateEnabled",
+  "approved voice gate is enabled only when approved profiles can own continuous listening",
 );
 expectIncludes(
   approvedVoiceGateBindingSource,
@@ -85,9 +115,34 @@ expectIncludes(
   "approved voice gate forwards approved recognition events to the speech-processing handoff",
 );
 expectIncludes(
+  wakeWordBindingSource,
+  "enabled: wakeWordFallbackEnabled",
+  "wake-word listener is enabled as the always-listening fallback",
+);
+expectIncludes(
+  wakeWordBindingSource,
+  "onDetected: handleWakeWordDetected",
+  "wake-word listener hands detection off to speech input",
+);
+expectIncludes(
   voiceInputBindingSource,
   "requireApprovedVoiceGate: true",
   "speech recognition requires approved voice gate metadata before processing starts",
+);
+expectIncludes(
+  wakeWordHandlerSource,
+  "voiceInputCanSubmitRef.current = true",
+  "wake-word fallback authorizes its own live speech transcript for submission",
+);
+expectIncludes(
+  wakeWordHandlerSource,
+  "approvedVoiceGateRequired: false",
+  "wake-word fallback starts explicit live speech input without buffered approved-voice metadata",
+);
+expectIncludes(
+  longPressHandlerSource,
+  "approvedVoiceGateRequired: false",
+  "manual long-press voice input remains available without approved-voice profile setup",
 );
 expectIncludes(
   approvedVoiceHandlerSource,

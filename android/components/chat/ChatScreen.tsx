@@ -5,6 +5,7 @@ import {
   deleteApprovedAudioRecord,
   useApprovedAudioRecordViews,
 } from '@/hooks/useApprovedVoiceGate';
+import type { ApprovedVoiceProfileRuntimeStatus } from '@/hooks/useApprovedVoiceProfileRuntime';
 import React, { useCallback, useMemo } from 'react';
 import { StyleSheet } from 'react-native';
 import {
@@ -15,7 +16,15 @@ import { ChatInput } from './ChatInput';
 import { MessageList } from './MessageList';
 import { SavedAudioRecordList } from './SavedAudioRecordList';
 
-export function ChatScreen() {
+interface ChatScreenProps {
+  approvedVoiceProfileRuntimeStatus?: ApprovedVoiceProfileRuntimeStatus;
+  approvedVoiceCount?: number;
+}
+
+export function ChatScreen({
+  approvedVoiceProfileRuntimeStatus = 'ready',
+  approvedVoiceCount = 0,
+}: ChatScreenProps) {
   const { messages, isLoading, error, sendMessage, addLocalMessage } = useChat();
   const savedAudioRecords = useApprovedAudioRecordViews();
   const handleDeleteSavedAudioRecord = useCallback((clipId: string) => {
@@ -59,6 +68,10 @@ export function ChatScreen() {
             disabled={isLoading}
             lastAssistantMessage={lastAssistantMessage}
             onLocalMessage={addLocalMessage}
+            approvedVoiceProfileRuntimeStatus={
+              approvedVoiceProfileRuntimeStatus
+            }
+            approvedVoiceCount={approvedVoiceCount}
           />
         </KeyboardStickyView>
       </KeyboardProvider>

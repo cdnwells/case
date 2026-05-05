@@ -7,14 +7,18 @@ import {
 } from "@/services/voice/approvedVoiceProfiles";
 import { configureApprovedVoiceGateRuntime } from "./useApprovedVoiceGate";
 
-type ApprovedVoiceProfileRuntimeStatus = "idle" | "loading" | "ready" | "error";
+export type ApprovedVoiceProfileRuntimeStatus =
+  | "idle"
+  | "loading"
+  | "ready"
+  | "error";
 
 interface UseApprovedVoiceProfileRuntimeOptions {
   enabled?: boolean;
   storage?: ApprovedVoiceProfilePersistenceReadAdapter;
 }
 
-interface ApprovedVoiceProfileRuntimeState {
+export interface ApprovedVoiceProfileRuntimeState {
   status: ApprovedVoiceProfileRuntimeStatus;
   approvedVoiceCount: number;
   error: Error | null;

@@ -50,6 +50,18 @@ expectEqual(
   "voice input accepts the approved rolling-buffer audio segment in start options",
 );
 expectEqual(
+  useVoiceInputSource.includes("approvedVoiceGateRequired?:"),
+  true,
+  "voice input lets explicit live speech paths bypass the buffered-audio gate per recording start",
+);
+expectEqual(
+  useVoiceInputSource.includes(
+    "approvedVoiceGateRequired = requireApprovedVoiceGate",
+  ),
+  true,
+  "voice input keeps the hook-level approved voice gate requirement as the default",
+);
+expectEqual(
   useVoiceInputSource.includes(
     "approvedSpeechAudioSegmentRef.current = eligibleRollingBufferAudioSegment",
   ),

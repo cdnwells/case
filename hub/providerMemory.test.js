@@ -26,6 +26,7 @@ function rejectedSummary(overrides = {}) {
   return {
     nonString: 0,
     empty: 0,
+    lowValue: 0,
     overMaxChars: 0,
     duplicate: 0,
     overMaxEntries: 0,
@@ -221,6 +222,22 @@ test('provider memory returns null when all memory entries are invalid', () => {
   }))
 
   assert.equal(normalized.memory, null)
+})
+
+test('provider memory rejects low-value entries without blocking concise useful facts', () => {
+  const normalized = normalizeSuccessfulChatResponse('codex', JSON.stringify({
+    message: 'filtered low-value memory',
+    memory: [
+      'thanks',
+      'ok',
+      'Use pnpm for hub package commands.',
+    ],
+  }))
+
+  assert.deepEqual(normalized.memory, ['Use pnpm for hub package commands.'])
+  assert.deepEqual(normalized.rejectedMemorySummary, rejectedSummary({
+    lowValue: 2,
+  }))
 })
 
 test('ollama provider memory follows the same JSON memory field rule', () => {

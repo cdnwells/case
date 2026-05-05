@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 
 if (process.argv.includes('--version')) {
   writeFileSync(1, 'codex test-cli 0.0.0\n')
@@ -8,6 +8,27 @@ if (process.argv.includes('--version')) {
 }
 
 const prompt = readFileSync(0, 'utf8')
+if (process.env.FAKE_CODEX_CAPTURE_ARGS_PATH) {
+  writeFileSync(process.env.FAKE_CODEX_CAPTURE_ARGS_PATH, JSON.stringify(process.argv.slice(2)))
+}
+if (process.env.FAKE_CODEX_CAPTURE_IMAGES_PATH) {
+  const images = []
+  for (let index = 2; index < process.argv.length; index += 1) {
+    if (process.argv[index] !== '--image') {
+      continue
+    }
+
+    const imagePath = process.argv[index + 1] || ''
+    const exists = Boolean(imagePath) && existsSync(imagePath)
+    images.push({
+      path: imagePath,
+      exists,
+      sizeBytes: exists ? statSync(imagePath).size : null,
+      dataBase64: exists ? readFileSync(imagePath).toString('base64') : null,
+    })
+  }
+  writeFileSync(process.env.FAKE_CODEX_CAPTURE_IMAGES_PATH, JSON.stringify(images))
+}
 if (process.env.FAKE_CODEX_CAPTURE_PROMPT_PATH) {
   writeFileSync(process.env.FAKE_CODEX_CAPTURE_PROMPT_PATH, prompt)
 }

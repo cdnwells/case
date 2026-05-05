@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
 
-import { config, fastify } from './hub.js'
+import { config, fastify, formatSavedMemoryBlock } from './hub.js'
 
 const originalConfig = { ...config }
 
@@ -64,11 +64,7 @@ test('hub context routes persist, list, format, and delete memories in-process',
   })
   assert.equal(contextResponse.statusCode, 200)
   assert.deepEqual(contextResponse.json(), {
-    context: [
-      'Known facts about the user:',
-      '- User likes focused tests.',
-      '- Project Case memory now lives in the hub.',
-    ].join('\n'),
+    context: formatSavedMemoryBlock(saveBody.memories),
     memory_count: 2,
   })
 

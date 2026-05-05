@@ -41,6 +41,7 @@ interface UseVoiceInputReturn {
 }
 
 interface StartRecordingOptions {
+  approvedVoiceGateRequired?: boolean;
   approvedVoiceGateAccepted?: boolean;
   approvedVoiceMatchedVoiceId?: string | null;
   approvedVoiceRecognizedAtMs?: number;
@@ -207,6 +208,7 @@ export function useVoiceInput({
 
   const startRecording = useCallback(async (
     {
+      approvedVoiceGateRequired = requireApprovedVoiceGate,
       approvedVoiceGateAccepted = false,
       approvedVoiceMatchedVoiceId = null,
       approvedVoiceRecognizedAtMs,
@@ -246,7 +248,7 @@ export function useVoiceInput({
       return false;
     }
 
-    if (requireApprovedVoiceGate) {
+    if (approvedVoiceGateRequired) {
       try {
         assertApprovedVoiceVerifiedForBufferedAudioDownstream({
           downstreamPath: "transcription",

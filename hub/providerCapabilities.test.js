@@ -52,6 +52,23 @@ test('selected GPT model metadata identifies image-understanding combinations', 
   }
 })
 
+test('selected Codex provider metadata identifies CLI image-file support', () => {
+  for (const model of ['', 'gpt-5.2']) {
+    const capabilities = getSelectedChatProviderCapabilities({
+      chatProvider: 'codex',
+      codexModel: model,
+    })
+
+    assert.equal(capabilities.provider, 'codex')
+    assert.equal(capabilities.model, model)
+    assert.equal(capabilities.modelConfigKey, 'codexModel')
+    assert.equal(capabilities.modelEnvVar, 'CODEX_MODEL')
+    assert.equal(capabilities.supportsImageUnderstanding, true)
+    assert.equal(capabilities.imageUnderstandingTransport, 'codex-cli-image-file')
+    assert.equal(capabilities.imageUnderstandingUnsupportedReason, null)
+  }
+})
+
 test('selected GPT model metadata rejects text-only OpenAI model combinations', () => {
   for (const model of ['gpt-4', 'gpt-3.5-turbo', '', 'text-davinci-003']) {
     const capabilities = getSelectedChatProviderCapabilities({
@@ -73,18 +90,8 @@ test('selected GPT model metadata rejects text-only OpenAI model combinations', 
   }
 })
 
-test('selected non-GPT provider model metadata is image-unsupported for Case v1', () => {
+test('selected non-image provider model metadata is image-unsupported for Case v1', () => {
   const cases = [
-    {
-      provider: 'codex',
-      config: {
-        chatProvider: 'codex',
-        codexModel: 'gpt-5.2',
-      },
-      expectedModel: 'gpt-5.2',
-      expectedConfigKey: 'codexModel',
-      expectedEnvVar: 'CODEX_MODEL',
-    },
     {
       provider: 'claude',
       config: {

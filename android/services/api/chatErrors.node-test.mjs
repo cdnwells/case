@@ -11,8 +11,8 @@ import {
 test("hub unsupported provider/model errors keep their actionable message", () => {
   const hubBody = {
     error: "Provider Error",
-    message: `${IMAGE_UNDERSTANDING_UNSUPPORTED_PROVIDER_MODEL_MESSAGE}; selected provider "codex" does not support image input in Case v1`,
-    provider: "codex",
+    message: `${IMAGE_UNDERSTANDING_UNSUPPORTED_PROVIDER_MODEL_MESSAGE}; selected provider "claude" does not support image input in Case v1`,
+    provider: "claude",
   };
   const parsedBody = parseChatApiErrorBody(JSON.stringify(hubBody));
   const error = createChatApiError({
@@ -23,7 +23,7 @@ test("hub unsupported provider/model errors keep their actionable message", () =
 
   assert.equal(error instanceof ChatApiError, true);
   assert.equal(error.status, 502);
-  assert.equal(error.provider, "codex");
+  assert.equal(error.provider, "claude");
   assert.equal(error.message, hubBody.message);
   assert.equal(getSendMessageErrorMessage(error), hubBody.message);
 });
