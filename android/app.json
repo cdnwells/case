@@ -33,6 +33,7 @@
       "predictiveBackGestureEnabled": false,
       "softwareKeyboardLayoutMode": "resize",
       "package": "com.cdnwell.caseandroid",
+      "versionCode": 4,
       "permissions": [
         "USE_BIOMETRIC",
         "USE_FINGERPRINT",
@@ -65,7 +66,8 @@
           }
         }
       ],
-      "expo-dev-client"
+      "expo-dev-client",
+      "expo-web-browser"
     ],
     "experiments": {
       "typedRoutes": true

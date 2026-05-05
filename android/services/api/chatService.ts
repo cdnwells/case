@@ -1,9 +1,11 @@
-import {
+import type {
   SendMessageRequest,
   SendMessageResponse,
   CommandResultResponse,
 } from "@/types/chat";
 import { API_BASE_URL, IChatService } from "./types";
+import { createChatMessagePayload } from "./chatPayload";
+import { createChatApiError, parseChatApiErrorBody } from "./chatErrors";
 
 export class ChatService implements IChatService {
   private baseUrl: string;
@@ -18,11 +20,16 @@ export class ChatService implements IChatService {
       headers: {
         "Content-Type": "application/json",
       },
-      body: JSON.stringify(request),
+      body: createChatMessagePayload(request),
     });
 
     if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
+      const errorText = await response.text().catch(() => "");
+      throw createChatApiError({
+        body: parseChatApiErrorBody(errorText),
+        status: response.status,
+        statusText: response.statusText,
+      });
     }
 
     return response.json();

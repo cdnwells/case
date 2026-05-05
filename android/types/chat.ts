@@ -5,6 +5,7 @@ export interface Message {
   timestamp: Date;
   status: 'sending' | 'sent' | 'error';
   executionStatus?: 'queued' | 'executing' | 'completed' | 'failed';
+  errorMessage?: string;
   hasCommands?: boolean;
   executionId?: string;
 }
@@ -15,9 +16,26 @@ export interface ChatState {
   error: string | null;
 }
 
+export type ChatImageAttachmentMimeType = 'image/jpeg' | 'image/png';
+export type ChatImageAttachmentContentType = ChatImageAttachmentMimeType;
+
+export interface ChatImageAttachmentRequest {
+  type: 'image';
+  mimeType: ChatImageAttachmentMimeType;
+  contentType: ChatImageAttachmentContentType;
+  dataBase64: string;
+  file: string;
+  encoding: 'base64';
+  imageSource: string;
+  name: string;
+  sizeBytes: number;
+  source: 'file-picker';
+}
+
 export interface SendMessageRequest {
   content: string;
   conversationId?: string;
+  attachments?: ChatImageAttachmentRequest[];
 }
 
 export interface SendMessageResponse {

@@ -1,6 +1,7 @@
 import { useState, useCallback, useRef, useEffect } from "react";
-import { Message, ChatState } from "@/types/chat";
+import type { Message, ChatState, SendMessageRequest } from "@/types/chat";
 import { chatService } from "@/services/api";
+import { getSendMessageErrorMessage } from "@/services/api/chatErrors";
 
 const POLL_INTERVAL_MS = 3000;
 const POLL_MAX_ATTEMPTS = 60;
@@ -49,11 +50,12 @@ export function useChat() {
           const result = await chatService.pollCommandResult(executionId);
 
           if (result.status === "queued" || result.status === "executing") {
+            const executionStatus: Message["executionStatus"] = result.status;
             setState((prev) => ({
               ...prev,
               messages: prev.messages.map((msg) =>
                 msg.id === originalMessageId
-                  ? { ...msg, executionStatus: result.status }
+                  ? { ...msg, executionStatus }
                   : msg,
               ),
             }));
@@ -146,7 +148,10 @@ export function useChat() {
   );
 
   const sendMessage = useCallback(
-    async (content: string) => {
+    async (
+      content: string,
+      options: Pick<SendMessageRequest, "attachments" | "conversationId"> = {},
+    ) => {
       if (!content.trim()) return;
 
       const userMessage: Message = {
@@ -167,6 +172,12 @@ export function useChat() {
       try {
         const response = await chatService.sendMessage({
           content: userMessage.content,
+          ...(options.conversationId
+            ? { conversationId: options.conversationId }
+            : {}),
+          ...(options.attachments?.length
+            ? { attachments: options.attachments }
+            : {}),
         });
         const assistantMessage = response.message;
 
@@ -185,16 +196,17 @@ export function useChat() {
         if (assistantMessage.hasCommands && assistantMessage.executionId) {
           startPolling(assistantMessage.executionId, assistantMessage.id);
         }
-      } catch {
+      } catch (error) {
+        const errorMessage = getSendMessageErrorMessage(error);
         setState((prev) => ({
           ...prev,
           messages: prev.messages.map((msg) =>
             msg.id === userMessage.id
-              ? { ...msg, status: "error" as const }
+              ? { ...msg, status: "error" as const, errorMessage }
               : msg,
           ),
           isLoading: false,
-          error: "Failed to send message",
+          error: errorMessage,
         }));
       }
     },

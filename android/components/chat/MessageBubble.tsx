@@ -36,7 +36,9 @@ export function MessageBubble({ message }: MessageBubbleProps) {
       <View style={[styles.bubble, { backgroundColor }]}>
         <ThemedText style={[styles.text, { color: textColor }]}>{message.content}</ThemedText>
         {message.status === 'error' && (
-          <ThemedText style={styles.errorStatus}>Failed to send</ThemedText>
+          <ThemedText style={styles.errorStatus}>
+            {message.errorMessage || 'Failed to send'}
+          </ThemedText>
         )}
         {message.hasCommands && (
           <View style={styles.commandIndicator}>
