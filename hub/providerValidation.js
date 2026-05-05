@@ -5,7 +5,7 @@ import path from 'node:path'
 
 import { CHAT_PROVIDERS } from './providerMenu.js'
 
-const DEFAULT_CODEX_VALIDATION_TIMEOUT_MS = 5_000
+const DEFAULT_CODEX_VALIDATION_TIMEOUT_MS = 30_000
 const CODEX_EXEC_STARTUP_PROMPT = 'Reply with exactly: READY. Do not inspect or modify files.'
 
 function trimCommandOutput(output) {
@@ -35,7 +35,17 @@ function describeCommand(command, args) {
   return [command, ...args].join(' ')
 }
 
+function resolveTimeoutMs(timeoutSeconds, defaultTimeoutMs = DEFAULT_CODEX_VALIDATION_TIMEOUT_MS) {
+  const parsed = Number(timeoutSeconds)
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return defaultTimeoutMs
+  }
+
+  return Math.ceil(parsed * 1000)
+}
+
 function runCodexCliCommand(command, args, {
+  providerLabel = 'Codex CLI',
   spawnImpl = spawn,
   timeoutMs = DEFAULT_CODEX_VALIDATION_TIMEOUT_MS,
   stdin = '',
@@ -49,7 +59,7 @@ function runCodexCliCommand(command, args, {
       })
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
-      reject(new Error(`Codex CLI validation could not start: ${message}`))
+      reject(new Error(`${providerLabel} validation could not start: ${message}`))
       return
     }
 
@@ -69,7 +79,7 @@ function runCodexCliCommand(command, args, {
 
     timer = setTimeout(() => {
       child.kill?.('SIGKILL')
-      finish(() => reject(new Error(`Codex CLI validation timed out after ${Math.ceil(timeoutMs / 1000)}s while running "${describeCommand(command, args)}"`)))
+      finish(() => reject(new Error(`${providerLabel} validation timed out after ${Math.ceil(timeoutMs / 1000)}s while running "${describeCommand(command, args)}"`)))
     }, timeoutMs)
 
     child.stdout?.on('data', chunk => {
@@ -79,7 +89,7 @@ function runCodexCliCommand(command, args, {
       stderr += chunk.toString('utf8')
     })
     child.on('error', err => {
-      finish(() => reject(new Error(`Codex CLI validation failed to start: ${err.message}`)))
+      finish(() => reject(new Error(`${providerLabel} validation failed to start: ${err.message}`)))
     })
     child.on('close', exitCode => {
       finish(() => resolve({ stdout, stderr, exitCode }))
@@ -135,6 +145,17 @@ export async function runCodexCliStartupCheck(command, {
   return { version, exec }
 }
 
+export async function runClaudeCliStartupCheck(command, {
+  spawnImpl = spawn,
+  timeoutMs = DEFAULT_CODEX_VALIDATION_TIMEOUT_MS,
+} = {}) {
+  return runCodexCliCommand(command, ['--version'], {
+    providerLabel: 'Claude Code CLI',
+    spawnImpl,
+    timeoutMs,
+  })
+}
+
 function getStartupCheckPhase(check, phase) {
   if (check?.[phase]) {
     return check[phase]
@@ -151,6 +172,7 @@ export async function validateSelectedChatProvider(config, logger = console, {
   providers = CHAT_PROVIDERS,
   fetchImpl = globalThis.fetch,
   codexCheckImpl = runCodexCliStartupCheck,
+  claudeCheckImpl = runClaudeCliStartupCheck,
 } = {}) {
   if (!providers.includes(config.chatProvider)) {
     throw new Error(`Unsupported chat provider "${config.chatProvider}". Choose one of: ${providers.join(', ')}`)
@@ -166,6 +188,7 @@ export async function validateSelectedChatProvider(config, logger = console, {
       check = await codexCheckImpl(config.codexPath, {
         codexModel: config.codexModel,
         codexProfile: config.codexProfile,
+        timeoutMs: resolveTimeoutMs(config.codexValidationTimeout),
       })
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
@@ -201,6 +224,34 @@ export async function validateSelectedChatProvider(config, logger = console, {
       throw new Error('GPT chat provider selected, but OPENAI_API_KEY is not set')
     }
     logger.info?.({ provider: config.chatProvider, model: config.openaiModel }, 'Chat provider validated')
+    return
+  }
+
+  if (config.chatProvider === 'claude') {
+    if (!(await isExecutableAvailable(config.claudePath))) {
+      throw new Error(`Claude Code chat provider selected, but CLAUDE_PATH "${config.claudePath}" is not executable`)
+    }
+
+    let check
+    try {
+      check = await claudeCheckImpl(config.claudePath, {
+        timeoutMs: resolveTimeoutMs(config.claudeValidationTimeout),
+      })
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      throw new Error(`Claude Code chat provider selected, but CLAUDE_PATH "${config.claudePath}" failed startup validation: ${message}`)
+    }
+
+    const versionOutput = trimCommandOutput(`${check?.stdout || ''}\n${check?.stderr || ''}`)
+    if (!check || check.exitCode !== 0) {
+      throw new Error(`Claude Code chat provider selected, but CLAUDE_PATH "${config.claudePath}" failed startup validation with exit code ${check?.exitCode ?? 'unknown'}: ${versionOutput || 'no CLI output'}`)
+    }
+
+    if (!/\bclaude\b/i.test(versionOutput)) {
+      throw new Error(`Claude Code chat provider selected, but CLAUDE_PATH "${config.claudePath}" did not appear to be the Claude Code CLI: ${versionOutput || 'no CLI output'}`)
+    }
+
+    logger.info?.({ provider: config.chatProvider }, 'Chat provider validated')
     return
   }
 

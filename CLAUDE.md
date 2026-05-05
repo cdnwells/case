@@ -6,36 +6,35 @@
 - Use `pnpm` as the primary package manager. Prefer `pnpm` over `npm` or `yarn` for all install/run commands.
 - I want you to say all things in English.
 
-# Architecture: Hub-and-Spoke
+# Architecture: Merged Hub
 
-The system uses a hub-and-spoke architecture where the Hub (Node.js/Fastify, port 5000) acts as a central reverse proxy routing requests to specialized workers.
+The Hub (Node.js/Fastify, port 5000) handles Android requests, chat provider dispatch, command result polling, and memory/context storage in one process. Legacy Python worker code and provider docs live under `hub/workers/`.
 
-## Workers (Spokes)
+## Providers
 
-| Worker  | Port | Technology     | Purpose                              |
-|---------|------|----------------|--------------------------------------|
-| GPT     | 8000 | Python/FastAPI | Chat via OpenAI GPT                  |
-| Context | 8001 | Python/FastAPI | Memory/context file storage           |
-| Codex   | 8004 | Python/FastAPI | Command execution via Codex CLI       |
-| Claude  | 8003 | Python/FastAPI | Legacy command execution via Claude Code CLI|
+| Provider | Purpose                              |
+|----------|--------------------------------------|
+| GPT      | Chat via OpenAI GPT                  |
+| Memory   | File-backed context storage inside Hub |
+| Codex    | Chat/command planning via Codex CLI  |
+| Claude   | Chat via Claude Code CLI             |
+| Ollama   | Chat via local Ollama daemon         |
 
 ## Hub Routing
 
-- `POST /chat` → Context Worker (load) → GPT Worker → Context Worker (save)
+- `POST /chat` → load Hub memory → selected chat provider → save Hub memory
 - `POST /command` → command worker (Codex by default, fire-and-forget)
 - `GET /command/result/:id` → In-memory store
-- `/context/*` → Context Worker
-- Everything else → GPT Worker (default)
+- `GET /context` and `/context/memories` → Hub memory store
 
-## Adding a New Worker
+## Adding Provider Assets
 
-1. Create `workers/<name>/` following the standard structure (see any existing worker)
-2. Add `<NAME>_WORKER_URL` to `hub/.env`
-3. Add routing logic to `hub/hub.js` in `selectWorkerUrl()` and/or a dedicated route
-4. Worker must have `GET /health` endpoint
+1. Add provider docs or legacy worker code under `hub/workers/<name>/`.
+2. Add provider selection/dispatch logic in `hub/hub.js`.
+3. Add startup validation in `hub/providerValidation.js` when the provider has external requirements.
 
 ## Local Server Runner
 
-- Use `./run_servers.sh` to start the hub and worker servers together.
-- The runner defaults to Codex for `/command` by setting `COMMAND_WORKER_URL`.
-- Use `./run_servers.sh --executor claude --workers core` only when intentionally testing the legacy Claude command worker.
+- Use `./run_servers.sh` to start the merged hub.
+- Set `CHAT_PROVIDER=codex|claude|gpt|ollama` to skip the provider menu.
+- Memory is stored in `hub/data/memories.json` by default; override with `MEMORY_DATA_DIR`.

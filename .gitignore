@@ -35,6 +35,7 @@ Thumbs.db
 # Build
 *.log
 .logs/
+hub/data/
 
 # package-lock
 package-lock.json

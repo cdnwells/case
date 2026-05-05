@@ -1,6 +1,6 @@
 import readline from 'readline'
 
-export const CHAT_PROVIDERS = Object.freeze(['codex', 'gpt', 'ollama'])
+export const CHAT_PROVIDERS = Object.freeze(['codex', 'claude', 'gpt', 'ollama'])
 export const DEFAULT_CHAT_PROVIDER = 'codex'
 
 function providerIndex(provider, providers = CHAT_PROVIDERS) {

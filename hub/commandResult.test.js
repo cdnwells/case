@@ -3,6 +3,7 @@ import test from 'node:test'
 
 import { commandResults, config, fastify } from './hub.js'
 
+const originalFetch = globalThis.fetch
 const originalConfig = { ...config }
 
 test.before(async () => {
@@ -12,13 +13,16 @@ test.before(async () => {
 test.after(async () => {
   commandResults.clear()
   delete process.env.FAKE_CODEX_RESPONSE
+  globalThis.fetch = originalFetch
   await fastify.close()
 })
 
 test.beforeEach(() => {
   commandResults.clear()
   Object.assign(config, originalConfig)
+  config.contextWorkerUrl = 'http://context.test'
   delete process.env.FAKE_CODEX_RESPONSE
+  globalThis.fetch = originalFetch
 })
 
 async function getCommandResult(executionId) {
@@ -91,6 +95,19 @@ test('malformed command result executionId path returns Android not_found respon
 })
 
 test('queued command result can be polled with executionId returned by POST /chat', async () => {
+  const fetchCalls = []
+  globalThis.fetch = async (...args) => {
+    fetchCalls.push(args)
+    return {
+      ok: true,
+      status: 200,
+      text: async () => JSON.stringify({
+        context: '',
+        memory_count: 0,
+      }),
+    }
+  }
+
   config.chatProvider = 'codex'
   config.codexPath = new URL('./test-fixtures/fake-codex-cli.js', import.meta.url).pathname
   process.env.FAKE_CODEX_RESPONSE = JSON.stringify({
@@ -107,6 +124,9 @@ test('queued command result can be polled with executionId returned by POST /cha
   })
 
   assert.equal(chatResponse.statusCode, 200)
+  assert.equal(fetchCalls.length, 1)
+  assert.equal(fetchCalls[0][0], 'http://context.test/context')
+  assert.equal(fetchCalls[0][1].method, 'GET')
 
   const { message } = chatResponse.json()
   assert.equal(message.executionStatus, 'queued')
