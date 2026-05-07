@@ -4,6 +4,8 @@ import test from 'node:test'
 import { config, fastify } from './hub.js'
 
 const originalFetch = globalThis.fetch
+const TEST_CASE_HUB_TOKEN = 'test-case-hub-token'
+const authHeaders = { 'x-case-hub-token': TEST_CASE_HUB_TOKEN }
 
 test.before(async () => {
   await fastify.ready()
@@ -22,9 +24,10 @@ test('v1 hub does not expose or proxy out-of-scope worker endpoints', async () =
   }
 
   config.contextWorkerUrl = ''
+  config.caseHubToken = TEST_CASE_HUB_TOKEN
 
   const outOfScopeRequests = [
-    { method: 'POST', url: '/command', payload: { command: 'echo nope' } },
+    { method: 'POST', url: '/command', headers: authHeaders, payload: { command: 'echo nope' } },
     { method: 'GET', url: '/unknown-worker-route' },
   ]
 
@@ -33,7 +36,7 @@ test('v1 hub does not expose or proxy out-of-scope worker endpoints', async () =
     assert.equal(response.statusCode, 404, `${request.method} ${request.url}`)
   }
 
-  const contextResponse = await fastify.inject({ method: 'GET', url: '/context' })
+  const contextResponse = await fastify.inject({ method: 'GET', url: '/context', headers: authHeaders })
   assert.equal(contextResponse.statusCode, 200)
   assert.equal(typeof contextResponse.json().context, 'string')
 

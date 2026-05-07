@@ -55,6 +55,30 @@ expectEqual(
   "voice input lets explicit live speech paths bypass the buffered-audio gate per recording start",
 );
 expectEqual(
+  useVoiceInputSource.includes("silenceTimeout?: number;"),
+  true,
+  "voice input accepts a per-recording silence timeout override",
+);
+expectEqual(
+  useVoiceInputSource.includes(
+    "silenceTimeout: recordingSilenceTimeout = silenceTimeout",
+  ),
+  true,
+  "voice input defaults per-recording silence timeout to the hook-level timeout",
+);
+expectEqual(
+  useVoiceInputSource.includes("startSilenceTimer(resolvedSilenceTimeout);"),
+  true,
+  "voice input applies the per-recording timeout to local silence detection",
+);
+expectEqual(
+  useVoiceInputSource.includes(
+    "silenceTimeout: resolvedSilenceTimeout",
+  ),
+  true,
+  "voice input applies the per-recording timeout to Android speech recognizer options",
+);
+expectEqual(
   useVoiceInputSource.includes(
     "approvedVoiceGateRequired = requireApprovedVoiceGate",
   ),

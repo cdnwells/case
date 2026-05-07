@@ -19,6 +19,11 @@ import {
   type ApprovedVoiceDownstreamAuthorizationMetadata,
   type ApprovedSpeechAudioReleaseReason,
 } from "@/constants/audioBuffer";
+import {
+  createSpeechContextualStrings,
+  createSpeechInputAndroidIntentOptions,
+  selectBestSpeechTranscript,
+} from "@/services/voice/speechRecognitionAccuracy";
 
 type VoiceState = "idle" | "recording" | "processing" | "error";
 
@@ -41,6 +46,7 @@ interface UseVoiceInputReturn {
 }
 
 interface StartRecordingOptions {
+  silenceTimeout?: number;
   approvedVoiceGateRequired?: boolean;
   approvedVoiceGateAccepted?: boolean;
   approvedVoiceMatchedVoiceId?: string | null;
@@ -68,6 +74,7 @@ export function useVoiceInput({
   const silenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastSpeechTimeRef = useRef<number | null>(null);
   const currentTranscriptRef = useRef<string>("");
+  const currentTranscriptIsFinalRef = useRef(false);
   const releaseCapturedAudioRef = useRef<
     ((reason?: ApprovedSpeechAudioReleaseReason) => boolean) | null
   >(null);
@@ -109,7 +116,7 @@ export function useVoiceInput({
   }, []);
 
   // Start silence detection timer
-  const startSilenceTimer = useCallback(() => {
+  const startSilenceTimer = useCallback((activeSilenceTimeout = silenceTimeout) => {
     clearSilenceTimer();
     lastSpeechTimeRef.current = Date.now();
 
@@ -119,7 +126,7 @@ export function useVoiceInput({
         ? now - lastSpeechTimeRef.current
         : 0;
 
-      if (timeSinceLastSpeech >= silenceTimeout) {
+      if (timeSinceLastSpeech >= activeSilenceTimeout) {
         stopRecording();
       } else {
         silenceTimerRef.current = setTimeout(checkSilence, 500);
@@ -132,9 +139,12 @@ export function useVoiceInput({
   // Listen to speech recognition results
   useSpeechRecognitionEvent("result", (event) => {
     if (!activeRef.current) return;
-    const transcript = event.results[0]?.transcript;
-    if (transcript && transcript !== currentTranscriptRef.current) {
+    const transcript = selectBestSpeechTranscript(event.results);
+    if (!transcript) return;
+
+    if (event.isFinal || !currentTranscriptIsFinalRef.current) {
       currentTranscriptRef.current = transcript;
+      currentTranscriptIsFinalRef.current = event.isFinal;
       lastSpeechTimeRef.current = Date.now();
     }
   });
@@ -152,6 +162,7 @@ export function useVoiceInput({
     } finally {
       setState("idle");
       currentTranscriptRef.current = "";
+      currentTranscriptIsFinalRef.current = false;
     }
   });
 
@@ -163,6 +174,7 @@ export function useVoiceInput({
       releaseApprovedSpeechAudio("processing_cancelled");
       setState("idle");
       currentTranscriptRef.current = "";
+      currentTranscriptIsFinalRef.current = false;
       return;
     }
     if (event.error === "no-speech") {
@@ -170,6 +182,7 @@ export function useVoiceInput({
       releaseApprovedSpeechAudio("processing_error");
       setState("idle");
       currentTranscriptRef.current = "";
+      currentTranscriptIsFinalRef.current = false;
       return;
     }
     console.error(...createAudioSafeLogArgs("Speech error:", event));
@@ -177,6 +190,8 @@ export function useVoiceInput({
     setError(event.error || "Voice recognition failed");
     clearSilenceTimer();
     releaseApprovedSpeechAudio("processing_error");
+    currentTranscriptRef.current = "";
+    currentTranscriptIsFinalRef.current = false;
 
     // Auto-reset to idle after 1s
     setTimeout(() => {
@@ -209,6 +224,7 @@ export function useVoiceInput({
   const startRecording = useCallback(async (
     {
       approvedVoiceGateRequired = requireApprovedVoiceGate,
+      silenceTimeout: recordingSilenceTimeout = silenceTimeout,
       approvedVoiceGateAccepted = false,
       approvedVoiceMatchedVoiceId = null,
       approvedVoiceRecognizedAtMs,
@@ -220,6 +236,11 @@ export function useVoiceInput({
       releaseCapturedAudio,
     }: StartRecordingOptions = {},
   ) => {
+    const resolvedSilenceTimeout = Number.isFinite(recordingSilenceTimeout) &&
+      recordingSilenceTimeout > 0
+      ? recordingSilenceTimeout
+      : silenceTimeout;
+
     releaseApprovedSpeechAudio("processing_replaced");
     releaseCapturedAudioRef.current = releaseCapturedAudio || null;
     const eligibleRollingBufferAudioSegment =
@@ -300,21 +321,22 @@ export function useVoiceInput({
 
       // Start recording
       currentTranscriptRef.current = "";
+      currentTranscriptIsFinalRef.current = false;
       await ExpoSpeechRecognitionModule.start({
         lang: locale,
         interimResults: true,
-        maxAlternatives: 1,
+        maxAlternatives: 5,
         continuous: false,
         requiresOnDeviceRecognition: !approvedVoiceGateAccepted,
         addsPunctuation: false,
-        contextualStrings: [],
-        androidIntentOptions: {
-          EXTRA_ENABLE_LANGUAGE_DETECTION: true,
-        },
+        contextualStrings: createSpeechContextualStrings(),
+        androidIntentOptions: createSpeechInputAndroidIntentOptions({
+          silenceTimeout: resolvedSilenceTimeout,
+        }),
       });
 
       setState("recording");
-      startSilenceTimer();
+      startSilenceTimer(resolvedSilenceTimeout);
       return true;
     } catch (error: any) {
       console.error(
@@ -350,6 +372,7 @@ export function useVoiceInput({
     locale,
     releaseApprovedSpeechAudio,
     requireApprovedVoiceGate,
+    silenceTimeout,
     startSilenceTimer,
   ]);
 
@@ -365,6 +388,7 @@ export function useVoiceInput({
       releaseApprovedSpeechAudio("processing_cancelled");
       setState("idle");
       currentTranscriptRef.current = "";
+      currentTranscriptIsFinalRef.current = false;
     }
   }, [clearSilenceTimer, releaseApprovedSpeechAudio]);
 

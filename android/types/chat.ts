@@ -4,6 +4,7 @@ export interface Message {
   role: 'user' | 'assistant';
   timestamp: Date;
   status: 'sending' | 'sent' | 'error';
+  generatedFiles?: GeneratedDriveFile[];
   executionStatus?: 'queued' | 'executing' | 'completed' | 'failed';
   errorMessage?: string;
   hasCommands?: boolean;
@@ -32,14 +33,44 @@ export interface ChatImageAttachmentRequest {
   source: 'file-picker';
 }
 
+export interface DriveFileSummary {
+  id: string;
+  driveFileId: string;
+  name: string;
+  mimeType: string;
+  sizeBytes: number;
+  webViewLink?: string;
+  createdAt?: string;
+}
+
+export type GeneratedDriveFile = DriveFileSummary;
+
+export interface ChatDriveFileAttachmentRequest {
+  type: 'drive-file';
+  driveFileId: string;
+  name: string;
+  mimeType: string;
+  sizeBytes: number;
+  source: 'google-drive';
+}
+
+export type ChatAttachmentRequest =
+  | ChatImageAttachmentRequest
+  | ChatDriveFileAttachmentRequest;
+
 export interface SendMessageRequest {
   content: string;
   conversationId?: string;
-  attachments?: ChatImageAttachmentRequest[];
+  attachments?: ChatAttachmentRequest[];
 }
 
 export interface SendMessageResponse {
   message: Message;
+}
+
+export interface DriveFileListResponse {
+  files: DriveFileSummary[];
+  nextPageToken?: string;
 }
 
 export interface CommandResultResponse {

@@ -19,6 +19,8 @@ export function useChat() {
   );
 
   useEffect(() => {
+    void chatService.refreshLocalToken?.();
+
     return () => {
       for (const timer of pollingTimers.current.values()) {
         clearTimeout(timer);

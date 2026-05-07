@@ -5,6 +5,8 @@ import { commandResults, config, fastify } from './hub.js'
 
 const originalFetch = globalThis.fetch
 const originalConfig = { ...config }
+const TEST_CASE_HUB_TOKEN = 'test-case-hub-token'
+const authHeaders = { 'x-case-hub-token': TEST_CASE_HUB_TOKEN }
 
 test.before(async () => {
   await fastify.ready()
@@ -20,6 +22,7 @@ test.after(async () => {
 test.beforeEach(() => {
   commandResults.clear()
   Object.assign(config, originalConfig)
+  config.caseHubToken = TEST_CASE_HUB_TOKEN
   config.contextWorkerUrl = 'http://context.test'
   delete process.env.FAKE_CODEX_RESPONSE
   globalThis.fetch = originalFetch
@@ -29,6 +32,7 @@ async function getCommandResult(executionId) {
   const response = await fastify.inject({
     method: 'GET',
     url: `/command/result/${executionId}`,
+    headers: authHeaders,
   })
 
   return {
@@ -41,7 +45,10 @@ async function postChat(payload) {
   return fastify.inject({
     method: 'POST',
     url: '/chat',
-    headers: { 'content-type': 'application/json' },
+    headers: {
+      'content-type': 'application/json',
+      ...authHeaders,
+    },
     payload,
   })
 }
@@ -61,6 +68,7 @@ test('empty command result executionId returns Android not_found response', asyn
     const response = await fastify.inject({
       method: 'GET',
       url,
+      headers: authHeaders,
     })
 
     assert.deepEqual({
@@ -80,6 +88,7 @@ test('malformed command result executionId path returns Android not_found respon
   const response = await fastify.inject({
     method: 'GET',
     url: '/command/result/bad/id',
+    headers: authHeaders,
   })
 
   assert.deepEqual({

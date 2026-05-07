@@ -3,16 +3,21 @@
   "main": "expo-router/entry",
   "version": "1.0.0",
   "scripts": {
-    "start": "expo start --dev-client",
-    "android": "expo run:android",
-    "ios": "expo run:ios",
-    "web": "expo start --web"
+    "start": "APP_VARIANT=development expo start --dev-client --lan --scheme caseandroid-dev",
+    "start:dev": "APP_VARIANT=development expo start --dev-client --lan --scheme caseandroid-dev",
+    "android": "APP_VARIANT=development expo run:android --variant debug --app-id com.cdnwell.caseandroid.dev --device",
+    "android:dev": "APP_VARIANT=development expo run:android --variant debug --app-id com.cdnwell.caseandroid.dev --device",
+    "android:prod": "APP_VARIANT=production expo run:android --variant release --app-id com.cdnwell.caseandroid --device",
+    "prebuild:android": "APP_VARIANT=development expo prebuild --platform android",
+    "typecheck": "tsc --noEmit",
+    "ios": "expo run:ios"
   },
   "dependencies": {
     "@expo/vector-icons": "^15.0.3",
     "@react-navigation/native": "^7.1.8",
     "battery-optimization": "file:./modules/battery-optimization",
     "expo": "~54.0.34",
+    "expo-audio": "~1.1.1",
     "expo-build-properties": "^1.0.10",
     "expo-constants": "~18.0.13",
     "expo-dev-client": "~6.0.21",

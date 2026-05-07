@@ -75,6 +75,13 @@ if (process.env.FAKE_CODEX_EXPECT_PROMPT_SEQUENCE) {
   }
 }
 
+if (process.env.FAKE_CODEX_DELAY_MS) {
+  const delayMs = Number(process.env.FAKE_CODEX_DELAY_MS)
+  if (Number.isFinite(delayMs) && delayMs > 0) {
+    await new Promise(resolve => setTimeout(resolve, delayMs))
+  }
+}
+
 if (process.env.FAKE_CODEX_RESPONSE) {
   writeFileSync(1, process.env.FAKE_CODEX_RESPONSE)
   process.exit(0)

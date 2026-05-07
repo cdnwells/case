@@ -75,6 +75,25 @@ cd hub && pnpm install && cd ..
 
 Ollama가 실제 채팅을 처리하려면 `OLLAMA_MODEL`에 맞는 모델이 로컬 Ollama에 설치되어 있어야 합니다. 메모리는 기본적으로 `hub/data/memories.json`에 저장되며 `MEMORY_DATA_DIR`로 위치를 바꿀 수 있습니다.
 
+### Hub 토큰 인증
+
+Hub의 `/chat`, `/context*`, `/command*`, `/commands*` 경로는 `X-Case-Hub-Token` 헤더 또는 `Authorization: Bearer <token>`이 필요합니다. `/health`, `/robots.txt`, `/auth/refresh-local`은 공개 경로지만, refresh는 loopback/private LAN 요청에서만 동작하고 Cloudflare/public forwarded 요청으로 보이면 거부됩니다.
+
+토큰이 아직 없으면 같은 LAN에서 Android 앱을 한 번 열어 `POST /auth/refresh-local`이 성공하게 하거나, 수동으로 `CASE_HUB_TOKEN`을 설정해 시작하세요. refresh는 기본 24시간에 최초 1회만 새 토큰을 만들고, 이전 토큰은 기본 30분 동안 함께 허용해 앱 잠금을 피합니다. 토큰 상태는 기본적으로 `hub/data/auth-token.json`에 저장되며 원자적으로 쓰고 파일 권한을 제한합니다.
+
+주요 설정:
+
+```bash
+CASE_HUB_TOKEN=...                         # 초기/고정 또는 비상 fallback 토큰
+CASE_HUB_TOKEN_GRACE_SECONDS=1800          # 이전 토큰 허용 시간
+CASE_HUB_TOKEN_ROTATION_INTERVAL_HOURS=24  # 0이면 기존 토큰 유지
+CASE_HUB_TOKEN_FILE=auth-token.json        # MEMORY_DATA_DIR 아래 저장 파일명
+```
+
+Android 앱은 시작 시 `/auth/refresh-local`을 먼저 시도하고 성공한 토큰을 저장한 뒤 Hub 요청에 `X-Case-Hub-Token`을 붙입니다. 외부망에서 refresh가 실패해도 기존 저장 토큰으로 계속 요청합니다.
+
+Cloudflare 앞단에서는 Hub 자체 인증과 별도로 `/.git*`, `/wp-*`, `/xmlrpc.php`를 차단하고, 가능하면 `/chat`, `/context*`, `/command*`, `/commands*`에는 Cloudflare Access 또는 토큰 전제를 둡니다.
+
 자주 쓰는 옵션:
 
 ```bash

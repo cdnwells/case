@@ -13,19 +13,27 @@ import { useTextToSpeech } from "@/hooks/useTextToSpeech";
 import { useVoiceInput } from "@/hooks/useVoiceInput";
 import { useWakeWord } from "@/hooks/useWakeWord";
 import type { ApprovedVoiceProfileRuntimeStatus } from "@/hooks/useApprovedVoiceProfileRuntime";
-import type { ChatImageAttachmentRequest } from "@/types/chat";
+import { chatService } from "@/services/api";
+import type {
+  ChatAttachmentRequest,
+  ChatDriveFileAttachmentRequest,
+  ChatImageAttachmentRequest,
+  DriveFileSummary,
+} from "@/types/chat";
 import { File } from "expo-file-system";
 import * as Haptics from "expo-haptics";
 import React, { useState, useRef, useEffect, useCallback } from "react";
 import {
   Image,
+  ActivityIndicator,
+  FlatList,
+  Modal,
   Platform,
   StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
   View,
-  ActivityIndicator,
 } from "react-native";
 import { ApprovedAudioSavePrompt } from "./ApprovedAudioSavePrompt";
 import Animated, {
@@ -49,10 +57,15 @@ import {
   validateSelectedImageAttachmentSize,
 } from "./imageAttachmentValidation";
 
+const OPENAI_TTS_VOICE =
+  process.env.EXPO_PUBLIC_OPENAI_TTS_VOICE === "cedar" ? "cedar" : "marin";
+const DEFAULT_VOICE_INPUT_SILENCE_TIMEOUT_MS = 4000;
+const WAKE_WORD_VOICE_INPUT_SILENCE_TIMEOUT_MS = 8000;
+
 interface ChatInputProps {
   onSend: (
     message: string,
-    options?: { attachments?: ChatImageAttachmentRequest[] },
+    options?: { attachments?: ChatAttachmentRequest[] },
   ) => void | Promise<void>;
   disabled?: boolean;
   lastAssistantMessage?: string;
@@ -84,7 +97,15 @@ export function ChatInput({
   const [text, setText] = useState("");
   const [selectedImageAttachment, setSelectedImageAttachment] =
     useState<SelectedImageAttachment | null>(null);
+  const [selectedDriveFileAttachment, setSelectedDriveFileAttachment] =
+    useState<ChatDriveFileAttachmentRequest | null>(null);
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
+  const [isAttachmentMenuVisible, setIsAttachmentMenuVisible] = useState(false);
+  const [isDrivePickerVisible, setIsDrivePickerVisible] = useState(false);
+  const [driveFileSearch, setDriveFileSearch] = useState("");
+  const [driveFiles, setDriveFiles] = useState<DriveFileSummary[]>([]);
+  const [isLoadingDriveFiles, setIsLoadingDriveFiles] = useState(false);
+  const [drivePickerError, setDrivePickerError] = useState<string | null>(null);
   const [isPickingAttachment, setIsPickingAttachment] = useState(false);
   const [isPreparingAttachment, setIsPreparingAttachment] = useState(false);
   const [isVoiceMode, setIsVoiceMode] = useState(false);
@@ -116,6 +137,8 @@ export function ChatInput({
     language: "ko-KR",
     pitch: 1.0,
     rate: 1.0,
+    openAIVoice: OPENAI_TTS_VOICE,
+    synthesizeSpeech: chatService.synthesizeSpeech?.bind(chatService),
   });
 
   const clearApprovedAudioSaveFlow = useCallback(() => {
@@ -164,7 +187,7 @@ export function ChatInput({
       setIsVoiceMode(false);
     },
     locale: "ko-KR",
-    silenceTimeout: 4000,
+    silenceTimeout: DEFAULT_VOICE_INPUT_SILENCE_TIMEOUT_MS,
     active: isVoiceMode,
     requireApprovedVoiceGate: true,
   });
@@ -277,6 +300,7 @@ export function ChatInput({
 
     const started = await startRecording({
       approvedVoiceGateRequired: false,
+      silenceTimeout: WAKE_WORD_VOICE_INPUT_SILENCE_TIMEOUT_MS,
     });
     if (!started) {
       voiceInputCanSubmitRef.current = false;
@@ -355,9 +379,11 @@ export function ChatInput({
       return;
     }
 
-    let attachments: ChatImageAttachmentRequest[] | undefined;
+    let attachments: ChatAttachmentRequest[] | undefined;
 
-    if (selectedImageAttachment) {
+    if (selectedDriveFileAttachment) {
+      attachments = [selectedDriveFileAttachment];
+    } else if (selectedImageAttachment) {
       const validation = validateSelectedImageAttachmentSize(
         selectedImageAttachment.sizeBytes,
       );
@@ -422,6 +448,7 @@ export function ChatInput({
     void Promise.resolve(sendResult).catch(() => undefined);
     setText("");
     setSelectedImageAttachment(null);
+    setSelectedDriveFileAttachment(null);
     setAttachmentError(null);
   };
 
@@ -518,6 +545,7 @@ export function ChatInput({
   };
 
   const handlePickImageAttachment = async () => {
+    setIsAttachmentMenuVisible(false);
     if (
       disabled ||
       isRecording ||
@@ -568,6 +596,7 @@ export function ChatInput({
       }
 
       setSelectedImageAttachment(selection.attachment);
+      setSelectedDriveFileAttachment(null);
     } catch (error) {
       const message = error instanceof Error ? error.message : "";
       if (message.toLowerCase().includes("cancelled")) return;
@@ -578,6 +607,39 @@ export function ChatInput({
       setIsPickingAttachment(false);
     }
   };
+
+  const loadDriveFiles = useCallback(async (query = driveFileSearch) => {
+    setIsLoadingDriveFiles(true);
+    setDrivePickerError(null);
+    try {
+      const response = await chatService.listDriveFiles(query);
+      setDriveFiles(response.files);
+    } catch {
+      setDrivePickerError("Google Drive 파일 목록을 불러올 수 없습니다.");
+    } finally {
+      setIsLoadingDriveFiles(false);
+    }
+  }, [driveFileSearch]);
+
+  const handleOpenDrivePicker = useCallback(() => {
+    setIsAttachmentMenuVisible(false);
+    setIsDrivePickerVisible(true);
+    void loadDriveFiles("");
+  }, [loadDriveFiles]);
+
+  const handleSelectDriveFile = useCallback((file: DriveFileSummary) => {
+    setSelectedDriveFileAttachment({
+      type: "drive-file",
+      driveFileId: file.driveFileId || file.id,
+      name: file.name,
+      mimeType: file.mimeType,
+      sizeBytes: file.sizeBytes,
+      source: "google-drive",
+    });
+    setSelectedImageAttachment(null);
+    setAttachmentError(null);
+    setIsDrivePickerVisible(false);
+  }, []);
 
   const canPickAttachment =
     !disabled &&
@@ -598,6 +660,113 @@ export function ChatInput({
 
   return (
     <View style={[styles.container, { paddingBottom: 8 }]}>
+        <Modal
+          transparent
+          visible={isAttachmentMenuVisible}
+          animationType="fade"
+          onRequestClose={() => setIsAttachmentMenuVisible(false)}
+        >
+          <View style={styles.modalBackdrop}>
+            <View style={[styles.attachmentMenu, { backgroundColor }]}>
+              <TouchableOpacity
+                style={styles.attachmentMenuButton}
+                onPress={handlePickImageAttachment}
+              >
+                <IconSymbol name="paperclip" size={18} color={caseColor} />
+                <Text style={[styles.attachmentMenuText, { color: textColor }]}>
+                  로컬 이미지
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.attachmentMenuButton}
+                onPress={handleOpenDrivePicker}
+              >
+                <IconSymbol name="square.and.arrow.down.fill" size={18} color={caseColor} />
+                <Text style={[styles.attachmentMenuText, { color: textColor }]}>
+                  Google Drive
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.attachmentMenuCancel}
+                onPress={() => setIsAttachmentMenuVisible(false)}
+              >
+                <Text style={[styles.attachmentMenuText, { color: placeholderColor }]}>
+                  취소
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </Modal>
+        <Modal
+          visible={isDrivePickerVisible}
+          animationType="slide"
+          onRequestClose={() => setIsDrivePickerVisible(false)}
+        >
+          <View style={[styles.drivePickerContainer, { backgroundColor }]}>
+            <View style={styles.drivePickerHeader}>
+              <TextInput
+                style={[styles.driveSearchInput, { color: textColor }]}
+                value={driveFileSearch}
+                onChangeText={setDriveFileSearch}
+                placeholder="Drive 파일 검색"
+                placeholderTextColor={placeholderColor}
+                returnKeyType="search"
+                onSubmitEditing={() => loadDriveFiles(driveFileSearch)}
+              />
+              <TouchableOpacity
+                style={styles.driveHeaderButton}
+                onPress={() => loadDriveFiles(driveFileSearch)}
+                disabled={isLoadingDriveFiles}
+              >
+                {isLoadingDriveFiles ? (
+                  <ActivityIndicator size="small" color={caseColor} />
+                ) : (
+                  <IconSymbol name="chevron.right" size={20} color={caseColor} />
+                )}
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.driveHeaderButton}
+                onPress={() => setIsDrivePickerVisible(false)}
+              >
+                <IconSymbol name="xmark.circle.fill" size={20} color={placeholderColor} />
+              </TouchableOpacity>
+            </View>
+            {drivePickerError && (
+              <Text style={styles.attachmentError}>{drivePickerError}</Text>
+            )}
+            <FlatList
+              data={driveFiles}
+              keyExtractor={(item) => item.driveFileId || item.id}
+              keyboardShouldPersistTaps="handled"
+              renderItem={({ item }) => (
+                <TouchableOpacity
+                  style={styles.driveFileRow}
+                  onPress={() => handleSelectDriveFile(item)}
+                >
+                  <IconSymbol name="paperclip" size={18} color={caseColor} />
+                  <View style={styles.driveFileTextGroup}>
+                    <Text
+                      style={[styles.driveFileName, { color: textColor }]}
+                      numberOfLines={1}
+                    >
+                      {item.name}
+                    </Text>
+                    <Text style={[styles.driveFileMeta, { color: placeholderColor }]}>
+                      {item.mimeType}
+                    </Text>
+                  </View>
+                </TouchableOpacity>
+              )}
+              ListEmptyComponent={
+                isLoadingDriveFiles ? null : (
+                  <Text style={[styles.driveEmptyText, { color: placeholderColor }]}>
+                    표시할 Drive 파일이 없습니다.
+                  </Text>
+                )
+              }
+            />
+          </View>
+        </Modal>
         {approvedAudioSaveCandidate && (
           <ApprovedAudioSavePrompt
             laterUsePurpose={approvedAudioSavePurpose}
@@ -616,24 +785,26 @@ export function ChatInput({
             onDismiss={handleDismissApprovedAudioSave}
           />
         )}
-        {(selectedImageAttachment || attachmentError) && (
+        {(selectedImageAttachment || selectedDriveFileAttachment || attachmentError) && (
           <View style={styles.attachmentStatusRow}>
-            {selectedImageAttachment && (
+            {(selectedImageAttachment || selectedDriveFileAttachment) && (
               <View style={styles.attachmentChip}>
                 <IconSymbol name="paperclip" size={16} color={caseColor} />
                 <Text
                   style={[styles.attachmentText, { color: textColor }]}
                   numberOfLines={1}
                 >
-                  {selectedImageAttachment.name}
+                  {selectedImageAttachment?.name ||
+                    selectedDriveFileAttachment?.name}
                 </Text>
                 <TouchableOpacity
                   style={styles.removeAttachmentButton}
                   onPress={() => {
                     setSelectedImageAttachment(null);
+                    setSelectedDriveFileAttachment(null);
                     setAttachmentError(null);
                   }}
-                  accessibilityLabel="첨부 이미지 제거"
+                  accessibilityLabel="첨부 파일 제거"
                 >
                   <IconSymbol
                     name="xmark.circle.fill"
@@ -696,13 +867,16 @@ export function ChatInput({
             style={[
               styles.attachmentButton,
               {
-                backgroundColor: selectedImageAttachment ? "#dbeafe" : "#e9e9e9",
+                backgroundColor:
+                  selectedImageAttachment || selectedDriveFileAttachment
+                    ? "#dbeafe"
+                    : "#e9e9e9",
                 opacity: canPickAttachment ? 1 : 0.45,
               },
             ]}
-            onPress={handlePickImageAttachment}
+            onPress={() => setIsAttachmentMenuVisible(true)}
             disabled={!canPickAttachment}
-            accessibilityLabel="JPEG 또는 PNG 이미지 첨부"
+            accessibilityLabel="파일 첨부"
           >
             {isPickingAttachment ? (
               <ActivityIndicator size="small" color={caseColor} />
@@ -854,5 +1028,85 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     marginLeft: 6,
+  },
+  modalBackdrop: {
+    flex: 1,
+    justifyContent: "flex-end",
+    backgroundColor: "rgba(0, 0, 0, 0.35)",
+    padding: 16,
+  },
+  attachmentMenu: {
+    borderRadius: 16,
+    padding: 8,
+  },
+  attachmentMenuButton: {
+    minHeight: 44,
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 12,
+    gap: 10,
+  },
+  attachmentMenuCancel: {
+    minHeight: 42,
+    alignItems: "center",
+    justifyContent: "center",
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: "rgba(142, 142, 147, 0.35)",
+  },
+  attachmentMenuText: {
+    fontSize: 15,
+    lineHeight: 20,
+  },
+  drivePickerContainer: {
+    flex: 1,
+    paddingHorizontal: 14,
+    paddingTop: 48,
+  },
+  drivePickerHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginBottom: 12,
+  },
+  driveSearchInput: {
+    flex: 1,
+    minHeight: 40,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    backgroundColor: "rgba(142, 142, 147, 0.14)",
+    fontSize: 15,
+  },
+  driveHeaderButton: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(142, 142, 147, 0.14)",
+  },
+  driveFileRow: {
+    minHeight: 56,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: "rgba(142, 142, 147, 0.25)",
+  },
+  driveFileTextGroup: {
+    flex: 1,
+  },
+  driveFileName: {
+    fontSize: 15,
+    lineHeight: 20,
+  },
+  driveFileMeta: {
+    fontSize: 12,
+    lineHeight: 16,
+  },
+  driveEmptyText: {
+    marginTop: 24,
+    textAlign: "center",
+    fontSize: 13,
+    lineHeight: 18,
   },
 });

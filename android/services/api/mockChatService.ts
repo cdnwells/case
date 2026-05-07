@@ -1,5 +1,16 @@
 import { IChatService } from './types';
-import { Message, SendMessageRequest, SendMessageResponse, CommandResultResponse } from '@/types/chat';
+import {
+  CommandResultResponse,
+  DriveFileListResponse,
+  GeneratedDriveFile,
+  Message,
+  SendMessageRequest,
+  SendMessageResponse,
+} from '@/types/chat';
+import type {
+  SynthesizeSpeechRequest,
+  SynthesizeSpeechResponse,
+} from './types';
 
 export class MockChatService implements IChatService {
   private delay = 1000;
@@ -30,6 +41,29 @@ export class MockChatService implements IChatService {
         exit_code: 0,
         execution_time: 1.5,
       },
+    };
+  }
+
+  async listDriveFiles(): Promise<DriveFileListResponse> {
+    await new Promise(resolve => setTimeout(resolve, this.delay));
+    return {
+      files: [],
+    };
+  }
+
+  async downloadGeneratedFile(file: GeneratedDriveFile): Promise<string> {
+    await new Promise(resolve => setTimeout(resolve, this.delay));
+    return `mock://drive/${file.driveFileId || file.id}`;
+  }
+
+  async synthesizeSpeech(
+    request: SynthesizeSpeechRequest,
+  ): Promise<SynthesizeSpeechResponse> {
+    await new Promise(resolve => setTimeout(resolve, this.delay));
+    return {
+      uri: `mock://speech/${encodeURIComponent(request.input.slice(0, 24))}`,
+      voice: request.voice || 'marin',
+      contentType: 'audio/mpeg',
     };
   }
 }

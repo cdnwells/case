@@ -27,6 +27,7 @@ const MAPPING = {
   'speaker.slash.fill': 'volume-off',
   'battery.100.bolt': 'battery-charging-full',
   'paperclip': 'attach-file',
+  'link': 'link',
   'xmark.circle.fill': 'cancel',
   'trash.fill': 'delete',
   'square.and.arrow.down.fill': 'save',

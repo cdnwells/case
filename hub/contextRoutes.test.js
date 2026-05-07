@@ -7,6 +7,8 @@ import test from 'node:test'
 import { config, fastify, formatSavedMemoryBlock } from './hub.js'
 
 const originalConfig = { ...config }
+const TEST_CASE_HUB_TOKEN = 'test-case-hub-token'
+const authHeaders = { 'x-case-hub-token': TEST_CASE_HUB_TOKEN }
 
 test.before(async () => {
   await fastify.ready()
@@ -24,6 +26,7 @@ test('hub context routes persist, list, format, and delete memories in-process',
   })
 
   Object.assign(config, originalConfig, {
+    caseHubToken: TEST_CASE_HUB_TOKEN,
     contextWorkerUrl: '',
     memoryDataDir,
     memoryFileName: 'memories.json',
@@ -32,6 +35,7 @@ test('hub context routes persist, list, format, and delete memories in-process',
   const saveResponse = await fastify.inject({
     method: 'POST',
     url: '/context/memories',
+    headers: authHeaders,
     payload: {
       memories: [
         '  User likes focused tests.  ',
@@ -54,6 +58,7 @@ test('hub context routes persist, list, format, and delete memories in-process',
   const listResponse = await fastify.inject({
     method: 'GET',
     url: '/context/memories',
+    headers: authHeaders,
   })
   assert.equal(listResponse.statusCode, 200)
   assert.equal(listResponse.json().total, 2)
@@ -61,6 +66,7 @@ test('hub context routes persist, list, format, and delete memories in-process',
   const contextResponse = await fastify.inject({
     method: 'GET',
     url: '/context',
+    headers: authHeaders,
   })
   assert.equal(contextResponse.statusCode, 200)
   assert.deepEqual(contextResponse.json(), {
@@ -72,6 +78,7 @@ test('hub context routes persist, list, format, and delete memories in-process',
   const deleteResponse = await fastify.inject({
     method: 'DELETE',
     url: `/context/memories/${memoryId}`,
+    headers: authHeaders,
   })
   assert.equal(deleteResponse.statusCode, 200)
   assert.deepEqual(deleteResponse.json(), {
@@ -82,6 +89,7 @@ test('hub context routes persist, list, format, and delete memories in-process',
   const afterDeleteResponse = await fastify.inject({
     method: 'GET',
     url: '/context/memories',
+    headers: authHeaders,
   })
   assert.equal(afterDeleteResponse.statusCode, 200)
   assert.deepEqual(afterDeleteResponse.json().memories.map(memory => memory.content), [

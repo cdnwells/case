@@ -19,7 +19,15 @@ You MUST always respond in valid JSON. No markdown, no plain text — raw JSON o
   "action": {
     "type": "execute",
     "instruction": "Natural language description of the computer task"
-  }
+  },
+  "files": [
+    {
+      "name": "generated-report.txt",
+      "mimeType": "text/plain",
+      "encoding": "utf8",
+      "content": "File content to upload to Google Drive"
+    }
+  ]
 }
 ```
 
@@ -29,6 +37,7 @@ You MUST always respond in valid JSON. No markdown, no plain text — raw JSON o
 - `action` (optional): Include ONLY when the user wants you to perform a computer operation. Omit entirely for normal conversation.
   - `type`: Always `"execute"`.
   - `instruction`: A clear, conversational description of the task. Written as if telling a colleague what to do — NOT a shell command. This gets forwarded to the command worker for execution.
+- `files` (optional): Explicit files Case created for the user to download. Include ONLY when the user asked for a file or the response naturally produces a file artifact. Each file must include a safe filename, MIME type, `encoding` of `"utf8"` or `"base64"`, and content.
 
 ### When to include `action`
 

@@ -1,7 +1,10 @@
 {
   "expo": {
-    "name": "case-android",
+    "name": "케이스",
     "slug": "case-android",
+    "platforms": [
+      "android"
+    ],
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
@@ -17,7 +20,7 @@
       "backgroundColor": "#ffffff"
     },
     "ios": {
-      "supportsTablet": true,
+      "supportsTablet": false,
       "bundleIdentifier": "com.cdnwell.caseandroid",
       "infoPlist": {
         "NSSpeechRecognitionUsageDescription": "이 앱이 음성을 텍스트로 변환하려면 음성 인식 권한이 필요합니다.",

@@ -4,6 +4,12 @@ import {
   ExpoSpeechRecognitionModule,
 } from "expo-speech-recognition";
 import * as Speech from "expo-speech";
+import {
+  DEFAULT_CASE_WAKE_WORDS,
+  createWakeWordAndroidIntentOptions,
+  createWakeWordContextualStrings,
+  transcriptMatchesWakeWord,
+} from "@/services/voice/speechRecognitionAccuracy";
 
 interface UseWakeWordOptions {
   enabled: boolean;
@@ -18,7 +24,7 @@ interface UseWakeWordReturn {
 
 export function useWakeWord({
   enabled,
-  wakeWords = ["case", "케이스"],
+  wakeWords = DEFAULT_CASE_WAKE_WORDS,
   locale = "ko-KR",
   onDetected,
 }: UseWakeWordOptions): UseWakeWordReturn {
@@ -49,13 +55,12 @@ export function useWakeWord({
       await ExpoSpeechRecognitionModule.start({
         lang: locale,
         interimResults: true,
-        maxAlternatives: 1,
+        maxAlternatives: 5,
         continuous: true,
         requiresOnDeviceRecognition: true,
         addsPunctuation: false,
-        androidIntentOptions: {
-          EXTRA_ENABLE_LANGUAGE_DETECTION: true,
-        },
+        contextualStrings: createWakeWordContextualStrings(wakeWords),
+        androidIntentOptions: createWakeWordAndroidIntentOptions(),
       });
 
       setIsListening(true);
@@ -83,10 +88,7 @@ export function useWakeWord({
   useSpeechRecognitionEvent("result", (event) => {
     if (!enabledRef.current || !sessionActiveRef.current) return;
 
-    const transcript = event.results[0]?.transcript?.toLowerCase() || "";
-    const detected = wakeWords.some((w) =>
-      transcript.includes(w.toLowerCase()),
-    );
+    const detected = transcriptMatchesWakeWord(event.results, wakeWords);
 
     if (detected) {
       // Ignore if TTS is currently playing — mic is picking up speaker audio

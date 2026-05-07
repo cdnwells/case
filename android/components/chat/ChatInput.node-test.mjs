@@ -126,8 +126,18 @@ expectIncludes(
 );
 expectIncludes(
   voiceInputBindingSource,
+  "silenceTimeout: DEFAULT_VOICE_INPUT_SILENCE_TIMEOUT_MS",
+  "speech recognition keeps the default silence timeout for normal command capture",
+);
+expectIncludes(
+  voiceInputBindingSource,
   "requireApprovedVoiceGate: true",
   "speech recognition requires approved voice gate metadata before processing starts",
+);
+expectIncludes(
+  chatInputSource,
+  "const WAKE_WORD_VOICE_INPUT_SILENCE_TIMEOUT_MS = 8000",
+  "chat input gives wake-word-triggered speech a longer silence timeout",
 );
 expectIncludes(
   wakeWordHandlerSource,
@@ -138,6 +148,11 @@ expectIncludes(
   wakeWordHandlerSource,
   "approvedVoiceGateRequired: false",
   "wake-word fallback starts explicit live speech input without buffered approved-voice metadata",
+);
+expectIncludes(
+  wakeWordHandlerSource,
+  "silenceTimeout: WAKE_WORD_VOICE_INPUT_SILENCE_TIMEOUT_MS",
+  "wake-word fallback extends command capture after activation",
 );
 expectIncludes(
   longPressHandlerSource,

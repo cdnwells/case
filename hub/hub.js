@@ -2,9 +2,11 @@ import 'dotenv/config'
 import Fastify from 'fastify'
 import crypto from 'crypto'
 import { spawn } from 'node:child_process'
-import { mkdir, mkdtemp, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, mkdtemp, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises'
+import { isIP } from 'node:net'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
+import { Readable } from 'node:stream'
 import { fileURLToPath } from 'node:url'
 import zlib from 'node:zlib'
 import { DEFAULT_CHAT_PROVIDER, selectStartupChatProvider } from './providerMenu.js'
@@ -33,14 +35,16 @@ const config = {
   codexModel: process.env.CODEX_MODEL || '',
   codexProfile: process.env.CODEX_PROFILE || '',
   codexValidationTimeout: parseInt(process.env.CODEX_VALIDATION_TIMEOUT || '30', 10),
-  codexChatTimeout: parseInt(process.env.CODEX_CHAT_TIMEOUT || '120', 10),
   claudePath: process.env.CLAUDE_PATH || 'claude',
-  claudeChatTimeout: parseInt(process.env.CLAUDE_CHAT_TIMEOUT || '120', 10),
   claudeValidationTimeout: parseInt(process.env.CLAUDE_VALIDATION_TIMEOUT || '30', 10),
   openaiApiKey: process.env.OPENAI_API_KEY || '',
   openaiBaseUrl: process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1',
   openaiModel: process.env.OPENAI_MODEL || 'gpt-4o',
   openaiTimeout: parseInt(process.env.OPENAI_TIMEOUT || '120', 10),
+  openaiTtsModel: process.env.OPENAI_TTS_MODEL || 'gpt-4o-mini-tts',
+  openaiTtsVoice: process.env.OPENAI_TTS_VOICE || 'marin',
+  openaiTtsInstructions: process.env.OPENAI_TTS_INSTRUCTIONS || 'Speak in a natural, clear Korean assistant voice with a calm Seoul accent. Keep pronunciation crisp, pacing steady, and tone warm without exaggeration.',
+  openaiTtsTimeout: parseInt(process.env.OPENAI_TTS_TIMEOUT || process.env.OPENAI_TIMEOUT || '120', 10),
   ollamaBaseUrl: process.env.OLLAMA_BASE_URL || 'http://localhost:11434',
   ollamaModel: process.env.OLLAMA_MODEL || 'gpt-oss-20b',
   ollamaTimeout: parseInt(process.env.OLLAMA_TIMEOUT || '120', 10),
@@ -51,6 +55,15 @@ const config = {
   memoryLoadTimeout: parseInt(process.env.MEMORY_LOAD_TIMEOUT || '5', 10),
   memoryMaxChars: parseInt(process.env.MEMORY_MAX_CHARS || '300', 10),
   memoryMaxEntries: parseInt(process.env.MEMORY_MAX_ENTRIES || '10', 10),
+  driveWorkerUrl: process.env.DRIVE_WORKER_URL || '',
+  driveRequestTimeout: parseInt(process.env.DRIVE_REQUEST_TIMEOUT || '60', 10),
+  driveTextAttachmentMaxChars: parseInt(process.env.DRIVE_TEXT_ATTACHMENT_MAX_CHARS || '50000', 10),
+  generatedFileMaxBytes: parseInt(process.env.GENERATED_FILE_MAX_BYTES || `${10 * 1024 * 1024}`, 10),
+  generatedFileMaxCount: parseInt(process.env.GENERATED_FILE_MAX_COUNT || '5', 10),
+  caseHubToken: process.env.CASE_HUB_TOKEN || '',
+  caseHubTokenFileName: process.env.CASE_HUB_TOKEN_FILE || 'auth-token.json',
+  caseHubTokenGraceSeconds: parseInt(process.env.CASE_HUB_TOKEN_GRACE_SECONDS || '1800', 10),
+  caseHubTokenRotationIntervalHours: parseFloat(process.env.CASE_HUB_TOKEN_ROTATION_INTERVAL_HOURS || '24'),
 }
 
 async function validateSelectedChatProvider(logger) {
@@ -115,6 +128,25 @@ const fastify = Fastify({
 
 const ROBOTS_TAG = 'noindex, nofollow, noarchive'
 const CRAWLER_USER_AGENT_PATTERN = /(bot|crawler|spider|slurp|bingpreview|facebookexternalhit)/i
+const CASE_HUB_TOKEN_HEADER = 'x-case-hub-token'
+const CASE_HUB_TOKEN_RESPONSE_HEADER = 'X-Case-Hub-Token'
+const CASE_HUB_AUTH_REALM = 'Case Hub'
+const DEFAULT_CASE_HUB_TOKEN_GRACE_SECONDS = 30 * 60
+const DEFAULT_CASE_HUB_TOKEN_ROTATION_INTERVAL_HOURS = 24
+const CASE_HUB_PROTECTED_PATH_PREFIXES = [
+  '/chat',
+  '/context',
+  '/drive',
+  '/speech',
+  '/command',
+  '/commands',
+]
+const CASE_HUB_CLOUDFLARE_HEADER_NAMES = [
+  'cf-connecting-ip',
+  'cf-ray',
+  'cf-ipcountry',
+  'cf-visitor',
+]
 const CHAT_IMAGE_ATTACHMENT_MIME_TYPES = new Set(['image/jpeg', 'image/png'])
 const CHAT_IMAGE_ATTACHMENT_UNSUPPORTED_MIME_TYPE_MESSAGES = new Map([
   ['application/pdf', 'PDF files are not supported for image understanding'],
@@ -122,6 +154,7 @@ const CHAT_IMAGE_ATTACHMENT_UNSUPPORTED_MIME_TYPE_MESSAGES = new Map([
   ['image/heif', 'HEIF files are not supported for image understanding'],
 ])
 const CHAT_IMAGE_ATTACHMENT_SOURCE = 'file-picker'
+const CHAT_DRIVE_FILE_ATTACHMENT_SOURCE = 'google-drive'
 const CHAT_IMAGE_ATTACHMENT_ENCODING = 'base64'
 const CHAT_IMAGE_ATTACHMENT_REQUEST_FIELDS = new Set([
   'type',
@@ -133,6 +166,14 @@ const CHAT_IMAGE_ATTACHMENT_REQUEST_FIELDS = new Set([
   'imageSource',
   'name',
   'filename',
+  'sizeBytes',
+  'source',
+])
+const CHAT_DRIVE_FILE_ATTACHMENT_REQUEST_FIELDS = new Set([
+  'type',
+  'driveFileId',
+  'name',
+  'mimeType',
   'sizeBytes',
   'source',
 ])
@@ -148,6 +189,31 @@ const CHAT_IMAGE_ATTACHMENT_REQUIRED_FIELDS = [
   'sizeBytes',
   'source',
 ]
+const CHAT_DRIVE_FILE_ATTACHMENT_REQUIRED_FIELDS = [
+  'type',
+  'driveFileId',
+  'name',
+  'mimeType',
+  'sizeBytes',
+  'source',
+]
+const DRIVE_FILE_ATTACHMENT_TEXT_MIME_TYPES = new Set([
+  'application/json',
+  'application/javascript',
+  'application/typescript',
+  'application/xml',
+  'application/yaml',
+  'application/x-yaml',
+  'text/csv',
+  'text/markdown',
+])
+const GENERATED_FILE_ENCODINGS = new Set(['utf8', 'base64'])
+const GENERATED_FILE_NAME_MAX_CHARS = 180
+const GENERATED_FILE_MIME_TYPE_MAX_CHARS = 120
+const OPENAI_TTS_ALLOWED_VOICES = new Set(['marin', 'cedar'])
+const OPENAI_TTS_RESPONSE_FORMAT = 'mp3'
+const OPENAI_TTS_CONTENT_TYPE = 'audio/mpeg'
+const OPENAI_TTS_MAX_INPUT_CHARS = 8000
 const PNG_SIGNATURE = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]
 const PNG_IHDR_LENGTH = 13
 const PNG_CHUNK_HEADER_BYTES = 8
@@ -177,6 +243,375 @@ const PNG_CRC_TABLE = Array.from({ length: 256 }, (_, index) => {
   return value >>> 0
 })
 
+function requestPathname(request) {
+  return String(request.url || '').split('?')[0] || '/'
+}
+
+function isProtectedHubPath(pathname) {
+  return CASE_HUB_PROTECTED_PATH_PREFIXES.some(prefix => (
+    pathname === prefix || pathname.startsWith(`${prefix}/`)
+  ))
+}
+
+function firstHeaderValue(value) {
+  return Array.isArray(value) ? value[0] : value
+}
+
+function normalizeCaseHubToken(value) {
+  return typeof value === 'string' ? value.trim() : ''
+}
+
+function extractCaseHubToken(request) {
+  const headerToken = normalizeCaseHubToken(firstHeaderValue(request.headers[CASE_HUB_TOKEN_HEADER]))
+  if (headerToken) {
+    return headerToken
+  }
+
+  const authorization = firstHeaderValue(request.headers.authorization)
+  if (typeof authorization !== 'string') {
+    return ''
+  }
+
+  const bearerMatch = authorization.match(/^\s*Bearer\s+(.+?)\s*$/i)
+  return bearerMatch ? normalizeCaseHubToken(bearerMatch[1]) : ''
+}
+
+function timingSafeTokenEqual(left, right) {
+  const leftToken = normalizeCaseHubToken(left)
+  const rightToken = normalizeCaseHubToken(right)
+  if (!leftToken || !rightToken) {
+    return false
+  }
+
+  const leftHash = crypto.createHash('sha256').update(leftToken).digest()
+  const rightHash = crypto.createHash('sha256').update(rightToken).digest()
+  return crypto.timingSafeEqual(leftHash, rightHash)
+}
+
+function parseTimestampMs(value) {
+  if (typeof value !== 'string' || !value.trim()) {
+    return null
+  }
+
+  const timestampMs = Date.parse(value)
+  return Number.isFinite(timestampMs) ? timestampMs : null
+}
+
+function configuredCaseHubTokenGraceSeconds() {
+  return Number.isFinite(config.caseHubTokenGraceSeconds) && config.caseHubTokenGraceSeconds >= 0
+    ? config.caseHubTokenGraceSeconds
+    : DEFAULT_CASE_HUB_TOKEN_GRACE_SECONDS
+}
+
+function configuredCaseHubTokenRotationIntervalHours() {
+  return Number.isFinite(config.caseHubTokenRotationIntervalHours) && config.caseHubTokenRotationIntervalHours >= 0
+    ? config.caseHubTokenRotationIntervalHours
+    : DEFAULT_CASE_HUB_TOKEN_ROTATION_INTERVAL_HOURS
+}
+
+function configuredCaseHubTokenRotationIntervalMs() {
+  return configuredCaseHubTokenRotationIntervalHours() * 60 * 60 * 1000
+}
+
+function generateCaseHubToken() {
+  return crypto.randomBytes(32).toString('base64url')
+}
+
+function normalizeIpAddress(value) {
+  let raw = typeof value === 'string' ? value.trim() : ''
+  if (!raw) {
+    return ''
+  }
+
+  const zoneIndex = raw.indexOf('%')
+  if (zoneIndex !== -1) {
+    raw = raw.slice(0, zoneIndex)
+  }
+
+  if (raw.startsWith('[')) {
+    const bracketEnd = raw.indexOf(']')
+    raw = bracketEnd === -1 ? raw : raw.slice(1, bracketEnd)
+  } else if (/^\d{1,3}(?:\.\d{1,3}){3}:\d+$/.test(raw)) {
+    raw = raw.slice(0, raw.lastIndexOf(':'))
+  }
+
+  const mappedIpv4Prefix = '::ffff:'
+  if (raw.toLowerCase().startsWith(mappedIpv4Prefix)) {
+    raw = raw.slice(mappedIpv4Prefix.length)
+  }
+
+  return raw
+}
+
+function isPrivateOrLoopbackIp(value) {
+  const ipAddress = normalizeIpAddress(value)
+  const version = isIP(ipAddress)
+  if (version === 4) {
+    const octets = ipAddress.split('.').map(part => Number(part))
+    if (octets.length !== 4 || octets.some(octet => !Number.isInteger(octet) || octet < 0 || octet > 255)) {
+      return false
+    }
+
+    return octets[0] === 10 ||
+      octets[0] === 127 ||
+      (octets[0] === 169 && octets[1] === 254) ||
+      (octets[0] === 172 && octets[1] >= 16 && octets[1] <= 31) ||
+      (octets[0] === 192 && octets[1] === 168)
+  }
+
+  if (version === 6) {
+    const normalized = ipAddress.toLowerCase()
+    return normalized === '::1' ||
+      normalized.startsWith('fc') ||
+      normalized.startsWith('fd') ||
+      normalized.startsWith('fe80:')
+  }
+
+  return false
+}
+
+function splitHeaderIps(value) {
+  const headerValue = firstHeaderValue(value)
+  if (typeof headerValue !== 'string') {
+    return []
+  }
+
+  return headerValue
+    .split(',')
+    .map(ip => normalizeIpAddress(ip))
+    .filter(Boolean)
+}
+
+function splitForwardedHeaderIps(value) {
+  const headerValue = firstHeaderValue(value)
+  if (typeof headerValue !== 'string') {
+    return []
+  }
+
+  return Array.from(headerValue.matchAll(/\bfor=(?:"?)([^;,"]+)/gi))
+    .map(match => normalizeIpAddress(match[1]))
+    .filter(Boolean)
+}
+
+function hasCloudflareProxyHeaders(headers) {
+  if (CASE_HUB_CLOUDFLARE_HEADER_NAMES.some(headerName => Boolean(firstHeaderValue(headers[headerName])))) {
+    return true
+  }
+
+  const cdnLoop = firstHeaderValue(headers['cdn-loop'])
+  return typeof cdnLoop === 'string' && /cloudflare/i.test(cdnLoop)
+}
+
+function getDirectClientIp(request) {
+  return normalizeIpAddress(request.ip || request.raw?.socket?.remoteAddress || '')
+}
+
+function getForwardedClientIps(request) {
+  return [
+    ...splitHeaderIps(request.headers['x-forwarded-for']),
+    ...splitHeaderIps(request.headers['x-real-ip']),
+    ...splitHeaderIps(request.headers['true-client-ip']),
+    ...splitForwardedHeaderIps(request.headers.forwarded),
+  ]
+}
+
+function getLocalRefreshDecision(request) {
+  if (hasCloudflareProxyHeaders(request.headers)) {
+    return { allowed: false, reason: 'cloudflare_proxy_headers' }
+  }
+
+  const forwardedIps = getForwardedClientIps(request)
+  const publicForwardedIp = forwardedIps.find(ip => !isPrivateOrLoopbackIp(ip))
+  if (publicForwardedIp) {
+    return { allowed: false, reason: 'public_forwarded_ip' }
+  }
+
+  const directIp = getDirectClientIp(request)
+  if (!isPrivateOrLoopbackIp(directIp)) {
+    return { allowed: false, reason: 'public_direct_ip' }
+  }
+
+  return { allowed: true, reason: 'local_or_lan' }
+}
+
+class FileAuthTokenStore {
+  constructor(configRef) {
+    this.config = configRef
+    this.writeQueue = Promise.resolve()
+  }
+
+  tokenFilePath() {
+    return path.join(this.config.memoryDataDir, this.config.caseHubTokenFileName)
+  }
+
+  envToken() {
+    return normalizeCaseHubToken(this.config.caseHubToken)
+  }
+
+  normalizeState(value) {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+      return {}
+    }
+
+    const activeToken = normalizeCaseHubToken(value.activeToken)
+    const previousToken = normalizeCaseHubToken(value.previousToken)
+
+    return {
+      version: 1,
+      ...(activeToken ? { activeToken } : {}),
+      ...(typeof value.activeTokenCreatedAt === 'string' ? { activeTokenCreatedAt: value.activeTokenCreatedAt } : {}),
+      ...(typeof value.lastRotatedAt === 'string' ? { lastRotatedAt: value.lastRotatedAt } : {}),
+      ...(previousToken ? { previousToken } : {}),
+      ...(typeof value.previousTokenExpiresAt === 'string' ? { previousTokenExpiresAt: value.previousTokenExpiresAt } : {}),
+    }
+  }
+
+  async readState() {
+    let raw
+    try {
+      raw = await readFile(this.tokenFilePath(), 'utf8')
+    } catch (err) {
+      if (err?.code === 'ENOENT') {
+        return {}
+      }
+      throw err
+    }
+
+    try {
+      return this.normalizeState(JSON.parse(raw))
+    } catch {
+      return {}
+    }
+  }
+
+  async writeState(state) {
+    const filePath = this.tokenFilePath()
+    const directory = path.dirname(filePath)
+    const tempPath = `${filePath}.${process.pid}.${Date.now()}.tmp`
+
+    await mkdir(directory, { recursive: true, mode: 0o700 })
+    await chmod(directory, 0o700).catch(() => {})
+    await writeFile(tempPath, `${JSON.stringify(this.normalizeState(state), null, 2)}\n`, {
+      encoding: 'utf8',
+      mode: 0o600,
+    })
+    await chmod(tempPath, 0o600).catch(() => {})
+    await rename(tempPath, filePath)
+    await chmod(filePath, 0o600).catch(() => {})
+  }
+
+  async updateState(updater) {
+    const run = this.writeQueue.then(async () => {
+      const current = await this.readState()
+      const { state, result } = await updater(current)
+      await this.writeState(state)
+      return result
+    })
+
+    this.writeQueue = run.catch(() => {})
+    return run
+  }
+
+  acceptedTokens(state, nowMs = Date.now()) {
+    const tokens = []
+    const activeToken = normalizeCaseHubToken(state.activeToken)
+    if (activeToken) {
+      tokens.push(activeToken)
+    }
+
+    const previousToken = normalizeCaseHubToken(state.previousToken)
+    const previousTokenExpiresAtMs = parseTimestampMs(state.previousTokenExpiresAt)
+    if (previousToken && previousTokenExpiresAtMs !== null && previousTokenExpiresAtMs > nowMs) {
+      tokens.push(previousToken)
+    }
+
+    const envToken = this.envToken()
+    if (envToken && !tokens.some(token => timingSafeTokenEqual(token, envToken))) {
+      tokens.push(envToken)
+    }
+
+    return tokens
+  }
+
+  async verifyToken(token, { now = new Date() } = {}) {
+    const candidateToken = normalizeCaseHubToken(token)
+    if (!candidateToken) {
+      return false
+    }
+
+    const state = await this.readState()
+    const nowMs = now.getTime()
+    return this.acceptedTokens(state, nowMs)
+      .some(acceptedToken => timingSafeTokenEqual(candidateToken, acceptedToken))
+  }
+
+  async refreshLocal({ now = new Date() } = {}) {
+    return this.updateState(async current => {
+      const nowMs = now.getTime()
+      const nowIso = now.toISOString()
+      const envToken = this.envToken()
+      const activeToken = normalizeCaseHubToken(current.activeToken) || envToken
+      const lastRotatedAtMs = parseTimestampMs(current.lastRotatedAt)
+      const rotationIntervalMs = configuredCaseHubTokenRotationIntervalMs()
+      const shouldRotate = !activeToken ||
+        (rotationIntervalMs > 0 && (
+          lastRotatedAtMs === null ||
+          nowMs - lastRotatedAtMs >= rotationIntervalMs
+        ))
+
+      const previousTokenExpiresAtMs = parseTimestampMs(current.previousTokenExpiresAt)
+      const nextState = {
+        ...current,
+        version: 1,
+      }
+
+      if (previousTokenExpiresAtMs !== null && previousTokenExpiresAtMs <= nowMs) {
+        delete nextState.previousToken
+        delete nextState.previousTokenExpiresAt
+      }
+
+      if (!shouldRotate) {
+        if (!normalizeCaseHubToken(nextState.activeToken) && activeToken && activeToken !== envToken) {
+          nextState.activeToken = activeToken
+        }
+        return {
+          state: nextState,
+          result: {
+            token: activeToken,
+            rotated: false,
+            previousTokenGraceExpiresAt: nextState.previousTokenExpiresAt || null,
+          },
+        }
+      }
+
+      const nextToken = generateCaseHubToken()
+      const graceSeconds = configuredCaseHubTokenGraceSeconds()
+      nextState.activeToken = nextToken
+      nextState.activeTokenCreatedAt = nowIso
+      nextState.lastRotatedAt = nowIso
+
+      if (activeToken && graceSeconds > 0) {
+        nextState.previousToken = activeToken
+        nextState.previousTokenExpiresAt = new Date(nowMs + graceSeconds * 1000).toISOString()
+      } else {
+        delete nextState.previousToken
+        delete nextState.previousTokenExpiresAt
+      }
+
+      return {
+        state: nextState,
+        result: {
+          token: nextToken,
+          rotated: true,
+          previousTokenGraceExpiresAt: nextState.previousTokenExpiresAt || null,
+        },
+      }
+    })
+  }
+}
+
+const authTokenStore = new FileAuthTokenStore(config)
+
 function isCrawlerRequest(request) {
   const userAgent = String(request.headers['user-agent'] || '')
   return CRAWLER_USER_AGENT_PATTERN.test(userAgent)
@@ -185,7 +620,8 @@ function isCrawlerRequest(request) {
 fastify.addHook('onRequest', async (request, reply) => {
   reply.header('X-Robots-Tag', ROBOTS_TAG)
 
-  if (request.url.split('?')[0] === '/robots.txt') {
+  const pathname = requestPathname(request)
+  if (pathname === '/robots.txt') {
     return
   }
 
@@ -194,6 +630,18 @@ fastify.addHook('onRequest', async (request, reply) => {
       error: 'Forbidden',
       message: 'Crawler access is not allowed',
     })
+  }
+
+  if (isProtectedHubPath(pathname)) {
+    const token = extractCaseHubToken(request)
+    const isAuthenticated = await authTokenStore.verifyToken(token)
+    if (!isAuthenticated) {
+      reply.header('WWW-Authenticate', `Bearer realm="${CASE_HUB_AUTH_REALM}"`)
+      return reply.code(401).send({
+        error: 'Unauthorized',
+        message: 'Case Hub token is required',
+      })
+    }
   }
 })
 
@@ -260,6 +708,29 @@ class MemoryDependencyError extends Error {
     if (resolvedOptions.provider) {
       this.provider = resolvedOptions.provider
     }
+  }
+}
+
+class DriveDependencyError extends Error {
+  constructor(message, cause) {
+    super(message)
+    this.name = 'DriveDependencyError'
+    this.cause = cause
+  }
+}
+
+class SpeechDependencyError extends Error {
+  constructor(message, cause) {
+    super(message)
+    this.name = 'SpeechDependencyError'
+    this.cause = cause
+  }
+}
+
+class ProviderFileValidationError extends Error {
+  constructor(message) {
+    super(message)
+    this.name = 'ProviderFileValidationError'
   }
 }
 
@@ -366,6 +837,44 @@ function buildMemoryErrorResponse(err, provider) {
   return response
 }
 
+function driveErrorMessage(err) {
+  if (err instanceof Error && err.message) {
+    return err.message
+  }
+
+  if (typeof err === 'string' && err.trim()) {
+    return err.trim()
+  }
+
+  return 'Drive file operation failed'
+}
+
+function buildDriveErrorResponse(err) {
+  return {
+    error: 'Drive Error',
+    message: driveErrorMessage(err),
+  }
+}
+
+function speechErrorMessage(err) {
+  if (err instanceof Error && err.message) {
+    return err.message
+  }
+
+  if (typeof err === 'string' && err.trim()) {
+    return err.trim()
+  }
+
+  return 'Speech synthesis failed'
+}
+
+function buildSpeechErrorResponse(err) {
+  return {
+    error: 'Speech Error',
+    message: speechErrorMessage(err),
+  }
+}
+
 function logMemoryDependencyFailure(logger, err, { provider, conversationId } = {}) {
   logger?.error?.({
     contextWorkerUrl: config.contextWorkerUrl,
@@ -444,10 +953,20 @@ function isImageAttachmentValidationMessage(message) {
     message.includes('image attachments')
 }
 
+function isDriveAttachmentValidationMessage(message) {
+  return typeof message === 'string' && (
+    message.includes('Drive file attachments') ||
+    message.includes('driveFileId') ||
+    message.includes(CHAT_DRIVE_FILE_ATTACHMENT_SOURCE)
+  )
+}
+
 function buildValidationErrorResponse(message) {
-  const code = isImageAttachmentValidationMessage(message)
-    ? 'CHAT_IMAGE_ATTACHMENT_VALIDATION_FAILED'
-    : 'CHAT_REQUEST_VALIDATION_FAILED'
+  const code = isDriveAttachmentValidationMessage(message)
+    ? 'CHAT_DRIVE_FILE_ATTACHMENT_VALIDATION_FAILED'
+    : isImageAttachmentValidationMessage(message)
+      ? 'CHAT_IMAGE_ATTACHMENT_VALIDATION_FAILED'
+      : 'CHAT_REQUEST_VALIDATION_FAILED'
   const field = validationMessageField(message)
   const validationError = {
     code,
@@ -464,6 +983,48 @@ function buildValidationErrorResponse(message) {
       error: validationError,
     },
     details: [validationError],
+  }
+}
+
+function normalizeOpenAiTtsVoice(value) {
+  const voice = typeof value === 'string' && value.trim()
+    ? value.trim().toLowerCase()
+    : String(config.openaiTtsVoice || '').trim().toLowerCase()
+
+  return OPENAI_TTS_ALLOWED_VOICES.has(voice) ? voice : null
+}
+
+function validateSpeechBody(body) {
+  if (!isPlainObject(body)) {
+    return 'speech request body must be an object'
+  }
+
+  if (!isNonEmptyString(body.input)) {
+    return 'input must be a non-empty string'
+  }
+
+  if (body.input.trim().length > OPENAI_TTS_MAX_INPUT_CHARS) {
+    return `input must be ${OPENAI_TTS_MAX_INPUT_CHARS} characters or fewer`
+  }
+
+  if (Object.hasOwn(body, 'voice') && !normalizeOpenAiTtsVoice(body.voice)) {
+    return 'voice must be marin or cedar'
+  }
+
+  if (Object.hasOwn(body, 'instructions') && typeof body.instructions !== 'string') {
+    return 'instructions must be a string'
+  }
+
+  return null
+}
+
+function normalizeSpeechRequestBody(body) {
+  return {
+    input: body.input.trim(),
+    voice: normalizeOpenAiTtsVoice(body.voice) || 'marin',
+    instructions: typeof body.instructions === 'string' && body.instructions.trim()
+      ? body.instructions.trim()
+      : String(config.openaiTtsInstructions || '').trim(),
   }
 }
 
@@ -1063,6 +1624,62 @@ function validateChatImageAttachment(attachment, index = 0) {
   return null
 }
 
+function validateChatDriveFileAttachment(attachment, index = 0) {
+  const pathPrefix = `attachments[${index}]`
+  if (!isPlainObject(attachment)) {
+    return `${pathPrefix} must be an object`
+  }
+
+  const unsupportedField = Object.keys(attachment).find(field => !CHAT_DRIVE_FILE_ATTACHMENT_REQUEST_FIELDS.has(field))
+  if (unsupportedField) {
+    return `${pathPrefix}.${unsupportedField} is not supported for Drive file attachments`
+  }
+
+  for (const field of CHAT_DRIVE_FILE_ATTACHMENT_REQUIRED_FIELDS) {
+    if (attachment[field] === undefined) {
+      return `${pathPrefix}.${field} is required`
+    }
+  }
+
+  if (attachment.type !== 'drive-file') {
+    return `${pathPrefix}.type must be "drive-file"`
+  }
+
+  if (attachment.source !== CHAT_DRIVE_FILE_ATTACHMENT_SOURCE) {
+    return `${pathPrefix}.source must be "${CHAT_DRIVE_FILE_ATTACHMENT_SOURCE}"`
+  }
+
+  if (!isNonEmptyString(attachment.driveFileId)) {
+    return `${pathPrefix}.driveFileId must be a non-empty string`
+  }
+
+  if (!isNonEmptyString(attachment.name)) {
+    return `${pathPrefix}.name must be a non-empty string`
+  }
+
+  if (!isNonEmptyString(attachment.mimeType)) {
+    return `${pathPrefix}.mimeType must be a non-empty string`
+  }
+
+  if (!Number.isInteger(attachment.sizeBytes) || attachment.sizeBytes < 0) {
+    return `${pathPrefix}.sizeBytes must be a non-negative integer`
+  }
+
+  return null
+}
+
+function validateChatAttachment(attachment, index = 0) {
+  if (!isPlainObject(attachment)) {
+    return `attachments[${index}] must be an object`
+  }
+
+  if (attachment.type === 'drive-file') {
+    return validateChatDriveFileAttachment(attachment, index)
+  }
+
+  return validateChatImageAttachment(attachment, index)
+}
+
 function validateChatAttachments(body) {
   if (body.attachments === undefined) {
     return null
@@ -1076,7 +1693,7 @@ function validateChatAttachments(body) {
     return 'exactly one image attachment is supported for v1'
   }
 
-  return validateChatImageAttachment(body.attachments[0], 0)
+  return validateChatAttachment(body.attachments[0], 0)
 }
 
 function validateNormalizedChatImageAttachment(attachment, index = 0) {
@@ -1113,6 +1730,10 @@ function validateChatAttachmentsForProviderDispatch(body) {
   }
 
   const [attachment] = body.attachments
+  if (isPlainObject(attachment) && attachment.type === 'drive-file') {
+    return validateChatDriveFileAttachment(attachment, 0)
+  }
+
   if (isPlainObject(attachment) && Object.hasOwn(attachment, 'bytes')) {
     return validateNormalizedChatImageAttachment(attachment, 0)
   }
@@ -1159,21 +1780,51 @@ function normalizeChatImageAttachment(attachment) {
   }
 }
 
-function getChatImageAttachment(requestBody) {
+function normalizeChatDriveFileAttachment(attachment) {
+  if (!attachment) {
+    return null
+  }
+
+  return {
+    type: 'drive-file',
+    driveFileId: attachment.driveFileId.trim(),
+    name: attachment.name.trim(),
+    mimeType: attachment.mimeType.trim().toLowerCase(),
+    sizeBytes: attachment.sizeBytes,
+    source: CHAT_DRIVE_FILE_ATTACHMENT_SOURCE,
+  }
+}
+
+function getChatAttachment(requestBody) {
   if (!Array.isArray(requestBody.attachments) || requestBody.attachments.length === 0) {
     return null
   }
 
-  return normalizeChatImageAttachment(requestBody.attachments[0])
+  const [attachment] = requestBody.attachments
+  if (isPlainObject(attachment) && attachment.type === 'drive-file') {
+    return normalizeChatDriveFileAttachment(attachment)
+  }
+
+  return normalizeChatImageAttachment(attachment)
+}
+
+function getChatImageAttachment(requestBody) {
+  const attachment = getChatAttachment(requestBody)
+  return attachment?.type === 'image' ? attachment : null
+}
+
+function getChatDriveFileAttachment(requestBody) {
+  const attachment = getChatAttachment(requestBody)
+  return attachment?.type === 'drive-file' ? attachment : null
 }
 
 function normalizeChatRequestBody(body) {
-  const imageAttachment = getChatImageAttachment(body)
+  const attachment = getChatAttachment(body)
 
   return {
     content: body.content,
     ...(body.conversationId !== undefined ? { conversationId: body.conversationId } : {}),
-    ...(imageAttachment ? { attachments: [imageAttachment] } : {}),
+    ...(attachment ? { attachments: [attachment] } : {}),
   }
 }
 
@@ -1206,12 +1857,143 @@ function buildContextWorkerUrl(pathname = '') {
   return `${config.contextWorkerUrl.replace(/\/$/, '')}${pathname}`
 }
 
+function configuredDriveWorkerUrl() {
+  return typeof config.driveWorkerUrl === 'string' ? config.driveWorkerUrl.trim() : ''
+}
+
+function buildDriveWorkerUrl(pathname = '') {
+  const driveWorkerUrl = configuredDriveWorkerUrl()
+  if (!driveWorkerUrl) {
+    throw new DriveDependencyError('DRIVE_WORKER_URL is required for Google Drive file operations')
+  }
+
+  config.driveWorkerUrl = driveWorkerUrl
+  return `${driveWorkerUrl.replace(/\/$/, '')}${pathname}`
+}
+
 function createTimeoutSignal(timeoutSeconds) {
   if (typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function') {
     return AbortSignal.timeout(timeoutSeconds * 1000)
   }
 
   return undefined
+}
+
+function createDriveTimeoutSignal() {
+  const timeoutSeconds = Number.isFinite(config.driveRequestTimeout) && config.driveRequestTimeout > 0
+    ? config.driveRequestTimeout
+    : 60
+  return createTimeoutSignal(timeoutSeconds)
+}
+
+async function readDriveWorkerErrorMessage(response) {
+  return readContextWorkerErrorMessage(response)
+}
+
+async function fetchDriveWorkerJson(pathname, options = {}) {
+  if (typeof fetch !== 'function') {
+    throw new DriveDependencyError('Drive worker request failed: fetch is not available')
+  }
+
+  let response
+  try {
+    response = await fetch(buildDriveWorkerUrl(pathname), {
+      ...options,
+      headers: {
+        accept: 'application/json',
+        ...(options.headers || {}),
+      },
+      signal: options.signal || createDriveTimeoutSignal(),
+    })
+  } catch (err) {
+    const message = err instanceof Error && err.message ? err.message : String(err)
+    throw new DriveDependencyError(`Drive worker request failed: ${message}`, err)
+  }
+
+  if (!response.ok) {
+    const detail = await readDriveWorkerErrorMessage(response)
+    throw new DriveDependencyError(appendContextWorkerErrorMessage(
+      `Drive worker returned HTTP ${response.status}`,
+      detail,
+    ))
+  }
+
+  try {
+    return JSON.parse(await response.text())
+  } catch (err) {
+    throw new DriveDependencyError('Drive worker returned invalid JSON', err)
+  }
+}
+
+function normalizeDriveFileMetadata(data, pathPrefix = 'drive file') {
+  if (!isPlainObject(data)) {
+    throw new DriveDependencyError(`${pathPrefix} metadata is invalid`)
+  }
+
+  const driveFileId = typeof data.driveFileId === 'string' && data.driveFileId.trim()
+    ? data.driveFileId.trim()
+    : typeof data.id === 'string' && data.id.trim()
+      ? data.id.trim()
+      : ''
+  const name = typeof data.name === 'string' ? data.name.trim() : ''
+  const mimeType = typeof data.mimeType === 'string' ? data.mimeType.trim().toLowerCase() : ''
+  const sizeBytes = Number(data.sizeBytes ?? data.size ?? 0)
+
+  if (!driveFileId || !name || !mimeType || !Number.isFinite(sizeBytes) || sizeBytes < 0) {
+    throw new DriveDependencyError(`${pathPrefix} metadata is invalid`)
+  }
+
+  return {
+    id: driveFileId,
+    driveFileId,
+    name,
+    mimeType,
+    sizeBytes: Math.trunc(sizeBytes),
+    ...(typeof data.webViewLink === 'string' && data.webViewLink.trim()
+      ? { webViewLink: data.webViewLink.trim() }
+      : {}),
+    ...(typeof data.createdAt === 'string' && data.createdAt.trim()
+      ? { createdAt: data.createdAt.trim() }
+      : typeof data.createdTime === 'string' && data.createdTime.trim()
+        ? { createdAt: data.createdTime.trim() }
+        : {}),
+  }
+}
+
+function normalizeDriveFileListPayload(data) {
+  if (!isPlainObject(data) || !Array.isArray(data.files)) {
+    throw new DriveDependencyError('Drive worker returned invalid file list')
+  }
+
+  return {
+    files: data.files.map((file, index) => normalizeDriveFileMetadata(file, `files[${index}]`)),
+    ...(typeof data.nextPageToken === 'string' && data.nextPageToken
+      ? { nextPageToken: data.nextPageToken }
+      : {}),
+  }
+}
+
+async function uploadGeneratedDriveFiles(files, { conversationId, logger } = {}) {
+  if (!Array.isArray(files) || files.length === 0) {
+    return []
+  }
+
+  const uploadedFiles = []
+  for (const file of files) {
+    const metadata = await fetchDriveWorkerJson('/drive/files', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(file),
+    })
+    uploadedFiles.push(normalizeDriveFileMetadata(metadata, 'uploaded generated file'))
+  }
+
+  logger?.info?.({
+    conversationId,
+    count: uploadedFiles.length,
+  }, 'Generated files uploaded to Drive')
+
+  return uploadedFiles
 }
 
 const CONTEXT_RESPONSE_FIELDS = new Set(['context', 'memory_count'])
@@ -1714,6 +2496,111 @@ function extractProviderMemory(parsed) {
   }
 }
 
+function configuredGeneratedFileMaxBytes() {
+  return Number.isInteger(config.generatedFileMaxBytes) && config.generatedFileMaxBytes > 0
+    ? config.generatedFileMaxBytes
+    : 10 * 1024 * 1024
+}
+
+function configuredGeneratedFileMaxCount() {
+  return Number.isInteger(config.generatedFileMaxCount) && config.generatedFileMaxCount > 0
+    ? config.generatedFileMaxCount
+    : 5
+}
+
+function normalizeGeneratedFileName(value, pathPrefix) {
+  if (!isNonEmptyString(value)) {
+    throw new ProviderFileValidationError(`${pathPrefix}.name must be a non-empty string`)
+  }
+
+  const name = value.trim()
+  if (name.length > GENERATED_FILE_NAME_MAX_CHARS) {
+    throw new ProviderFileValidationError(`${pathPrefix}.name must be ${GENERATED_FILE_NAME_MAX_CHARS} characters or fewer`)
+  }
+
+  if (/[\0/\\]/.test(name) || name === '.' || name === '..') {
+    throw new ProviderFileValidationError(`${pathPrefix}.name must be a safe file name`)
+  }
+
+  return name
+}
+
+function normalizeGeneratedFileMimeType(value, pathPrefix) {
+  if (!isNonEmptyString(value)) {
+    throw new ProviderFileValidationError(`${pathPrefix}.mimeType must be a non-empty string`)
+  }
+
+  const mimeType = value.trim().toLowerCase()
+  if (mimeType.length > GENERATED_FILE_MIME_TYPE_MAX_CHARS || !/^[a-z0-9][a-z0-9!#$&^_.+-]*\/[a-z0-9][a-z0-9!#$&^_.+-]*$/i.test(mimeType)) {
+    throw new ProviderFileValidationError(`${pathPrefix}.mimeType must be a valid MIME type`)
+  }
+
+  return mimeType
+}
+
+function normalizeGeneratedFileArtifact(file, index) {
+  const pathPrefix = `files[${index}]`
+  if (!isPlainObject(file)) {
+    throw new ProviderFileValidationError(`${pathPrefix} must be an object`)
+  }
+
+  const name = normalizeGeneratedFileName(file.name, pathPrefix)
+  const mimeType = normalizeGeneratedFileMimeType(file.mimeType, pathPrefix)
+  const encoding = typeof file.encoding === 'string' ? file.encoding.trim().toLowerCase() : ''
+  if (!GENERATED_FILE_ENCODINGS.has(encoding)) {
+    throw new ProviderFileValidationError(`${pathPrefix}.encoding must be "utf8" or "base64"`)
+  }
+
+  if (typeof file.content !== 'string' || file.content.length === 0) {
+    throw new ProviderFileValidationError(`${pathPrefix}.content must be a non-empty string`)
+  }
+
+  let content = file.content
+  let sizeBytes
+  if (encoding === 'base64') {
+    const normalizedContent = content.replace(/\s/g, '')
+    if (!/^[A-Za-z0-9+/]+={0,2}$/.test(normalizedContent)) {
+      throw new ProviderFileValidationError(`${pathPrefix}.content must be valid base64`)
+    }
+    content = normalizedContent
+    sizeBytes = Buffer.from(content, 'base64').length
+  } else {
+    sizeBytes = Buffer.byteLength(content, 'utf8')
+  }
+
+  if (sizeBytes <= 0) {
+    throw new ProviderFileValidationError(`${pathPrefix}.content must not be empty`)
+  }
+
+  if (sizeBytes > configuredGeneratedFileMaxBytes()) {
+    throw new ProviderFileValidationError(`${pathPrefix}.content decoded file payload is too large`)
+  }
+
+  return {
+    name,
+    mimeType,
+    encoding,
+    content,
+    sizeBytes,
+  }
+}
+
+function extractProviderFiles(parsed) {
+  if (!parsed || typeof parsed !== 'object' || parsed.files === undefined) {
+    return []
+  }
+
+  if (!Array.isArray(parsed.files)) {
+    throw new ProviderFileValidationError('files must be an array when provided')
+  }
+
+  if (parsed.files.length > configuredGeneratedFileMaxCount()) {
+    throw new ProviderFileValidationError(`files must include ${configuredGeneratedFileMaxCount()} files or fewer`)
+  }
+
+  return parsed.files.map((file, index) => normalizeGeneratedFileArtifact(file, index))
+}
+
 function sumRejectedMemorySummary(rejectedMemorySummary) {
   return Object.values(rejectedMemorySummary).reduce((sum, count) => sum + count, 0)
 }
@@ -1886,12 +2773,14 @@ function parseJsonProviderContent(content) {
     return {
       text: content.trim(),
       commands: [],
+      files: [],
       memory: null,
       rejectedMemorySummary: createRejectedMemorySummary(),
     }
   }
 
   const providerMemory = extractProviderMemory(parsed)
+  const providerFiles = extractProviderFiles(parsed)
   const messageText = typeof parsed.message === 'string' ? parsed.message : content
   const commands = []
   const action = parsed.action
@@ -1907,6 +2796,7 @@ function parseJsonProviderContent(content) {
   return {
     text: messageText.trim(),
     commands,
+    files: providerFiles,
     memory: providerMemory.memory,
     rejectedMemorySummary: providerMemory.rejectedMemorySummary,
   }
@@ -1957,6 +2847,7 @@ function parseShellProviderContent(content) {
 
   const parsed = parseJsonObject(content)
   const providerMemory = extractProviderMemory(parsed)
+  const providerFiles = extractProviderFiles(parsed)
   const messageText = parsed && typeof parsed.message === 'string'
     ? parsed.message
     : content
@@ -1964,6 +2855,7 @@ function parseShellProviderContent(content) {
   return {
     text: messageText.trim(),
     commands,
+    files: providerFiles,
     memory: providerMemory.memory,
     rejectedMemorySummary: providerMemory.rejectedMemorySummary,
   }
@@ -2001,31 +2893,42 @@ function queueChatCommands(commands) {
   }
 }
 
-function createAndroidMessage({ text, commands }) {
+function createAndroidMessage({ text, commands, generatedFiles = [] }) {
   const commandList = commands?.length ? commands : null
   const execution = queueChatCommands(commandList)
+  const parsedContent = {
+    text,
+    commands: commandList,
+  }
+  if (generatedFiles.length) {
+    parsedContent.generatedFiles = generatedFiles
+  }
 
-  return {
+  const message = {
     id: `msg_${crypto.randomUUID().replaceAll('-', '').slice(0, 12)}`,
     content: text,
     role: 'assistant',
     timestamp: new Date().toISOString(),
     status: 'sent',
-    parsedContent: {
-      text,
-      commands: commandList,
-    },
+    parsedContent,
     executionStatus: execution.executionStatus,
     hasCommands: execution.hasCommands,
     executionId: execution.executionId,
   }
+
+  if (generatedFiles.length) {
+    message.generatedFiles = generatedFiles
+  }
+
+  return message
 }
 
-function createSuccessfulChatResponse(parsed) {
+function createSuccessfulChatResponse(parsed, generatedFiles = []) {
   return {
     message: createAndroidMessage({
       text: parsed.text,
       commands: parsed.commands,
+      generatedFiles,
     }),
   }
 }
@@ -2094,8 +2997,132 @@ function buildOllamaMessages({ systemPrompt, memoryBlock = '', content }) {
     : [{ role: 'user', content }]
 }
 
+function isDriveTextAttachmentMimeType(mimeType) {
+  return typeof mimeType === 'string' && (
+    mimeType.startsWith('text/') ||
+    DRIVE_FILE_ATTACHMENT_TEXT_MIME_TYPES.has(mimeType)
+  )
+}
+
+function configuredDriveTextAttachmentMaxChars() {
+  return Number.isInteger(config.driveTextAttachmentMaxChars) && config.driveTextAttachmentMaxChars > 0
+    ? config.driveTextAttachmentMaxChars
+    : 50000
+}
+
+async function downloadDriveFileAttachment(fileId) {
+  if (typeof fetch !== 'function') {
+    throw new DriveDependencyError('Drive file download failed: fetch is not available')
+  }
+
+  let response
+  try {
+    response = await fetch(buildDriveWorkerUrl(`/drive/files/${encodeURIComponent(fileId)}/download`), {
+      method: 'GET',
+      signal: createDriveTimeoutSignal(),
+    })
+  } catch (err) {
+    const message = err instanceof Error && err.message ? err.message : String(err)
+    throw new DriveDependencyError(`Drive file download failed: ${message}`, err)
+  }
+
+  if (!response.ok) {
+    const detail = await readDriveWorkerErrorMessage(response)
+    throw new DriveDependencyError(appendContextWorkerErrorMessage(
+      `Drive file download failed: drive worker returned HTTP ${response.status}`,
+      detail,
+    ))
+  }
+
+  const bytes = Buffer.from(await response.arrayBuffer())
+  return {
+    bytes,
+    mimeType: response.headers.get('content-type')?.split(';')[0]?.trim().toLowerCase() || '',
+  }
+}
+
+function formatContentWithDriveFileContext(content, driveAttachment, fileContext) {
+  if (!fileContext) {
+    return content
+  }
+
+  return [
+    content,
+    `Attached Google Drive file: ${driveAttachment.name}`,
+    `MIME type: ${driveAttachment.mimeType}`,
+    fileContext,
+  ].join('\n\n')
+}
+
+function createDriveTextFileContext(bytes) {
+  const decoded = bytes.toString('utf8')
+  const maxChars = configuredDriveTextAttachmentMaxChars()
+  const text = decoded.length > maxChars
+    ? `${decoded.slice(0, maxChars)}\n\n[Drive file content truncated after ${maxChars} characters.]`
+    : decoded
+
+  return `File content:\n${text}`
+}
+
+async function prepareRequestBodyForProvider(requestBody) {
+  const driveAttachment = getChatDriveFileAttachment(requestBody)
+  if (!driveAttachment) {
+    return requestBody
+  }
+
+  if (CHAT_IMAGE_ATTACHMENT_MIME_TYPES.has(driveAttachment.mimeType)) {
+    const downloaded = await downloadDriveFileAttachment(driveAttachment.driveFileId)
+    const imageAttachment = normalizeChatImageAttachment({
+      type: 'image',
+      mimeType: driveAttachment.mimeType,
+      contentType: driveAttachment.mimeType,
+      dataBase64: downloaded.bytes.toString('base64'),
+      file: downloaded.bytes.toString('base64'),
+      encoding: CHAT_IMAGE_ATTACHMENT_ENCODING,
+      imageSource: `drive://${driveAttachment.driveFileId}`,
+      name: driveAttachment.name,
+      sizeBytes: downloaded.bytes.length,
+      source: CHAT_IMAGE_ATTACHMENT_SOURCE,
+    })
+
+    if (!imageAttachment) {
+      throw new DriveDependencyError('Drive image attachment could not be normalized')
+    }
+
+    return {
+      ...requestBody,
+      attachments: [imageAttachment],
+    }
+  }
+
+  if (isDriveTextAttachmentMimeType(driveAttachment.mimeType)) {
+    const downloaded = await downloadDriveFileAttachment(driveAttachment.driveFileId)
+    const { attachments, ...requestBodyWithoutAttachments } = requestBody
+    return {
+      ...requestBodyWithoutAttachments,
+      content: formatContentWithDriveFileContext(
+        requestBody.content,
+        driveAttachment,
+        createDriveTextFileContext(downloaded.bytes),
+      ),
+    }
+  }
+
+  const { attachments, ...requestBodyWithoutAttachments } = requestBody
+  return {
+    ...requestBodyWithoutAttachments,
+    content: formatContentWithDriveFileContext(
+      requestBody.content,
+      driveAttachment,
+      'File content was not injected because this Drive attachment is a binary or unsupported file type.',
+    ),
+  }
+}
+
 function runProcess(command, args, input, timeoutSeconds) {
   return new Promise((resolve, reject) => {
+    const parsedTimeoutSeconds = Number(timeoutSeconds)
+    const hasTimeout = Number.isFinite(parsedTimeoutSeconds) && parsedTimeoutSeconds > 0
     const child = spawn(command, args, {
       env: { ...process.env, NO_COLOR: '1' },
       stdio: ['pipe', 'pipe', 'pipe'],
@@ -2115,10 +3142,12 @@ function runProcess(command, args, input, timeoutSeconds) {
       callback()
     }
 
-    timer = setTimeout(() => {
-      child.kill('SIGKILL')
-      finish(() => reject(new ChatProviderError(`Provider timed out after ${timeoutSeconds}s`)))
-    }, timeoutSeconds * 1000)
+    if (hasTimeout) {
+      timer = setTimeout(() => {
+        child.kill('SIGKILL')
+        finish(() => reject(new ChatProviderError(`Provider timed out after ${parsedTimeoutSeconds}s`)))
+      }, parsedTimeoutSeconds * 1000)
+    }
 
     child.stdout.on('data', chunk => {
       stdout += chunk.toString('utf8')
@@ -2189,7 +3218,6 @@ async function runCodexChat({ content, context, imageAttachment = null }) {
       config.codexPath,
       args,
       prompt,
-      config.codexChatTimeout,
     )
 
     if (result.exitCode !== 0) {
@@ -2218,7 +3246,6 @@ async function runClaudeChat({ content, context }) {
       promptParts.filter(Boolean).join('\n\n'),
     ],
     '',
-    config.claudeChatTimeout,
   )
 
   if (result.exitCode !== 0) {
@@ -2273,6 +3300,56 @@ async function runOpenAiChat({ content, context, imageAttachment = null }) {
   }
 
   return message
+}
+
+async function synthesizeOpenAiSpeech({ input, voice, instructions }) {
+  if (!config.openaiApiKey) {
+    throw new SpeechDependencyError('OPENAI_API_KEY is required for OpenAI text-to-speech')
+  }
+
+  if (typeof fetch !== 'function') {
+    throw new SpeechDependencyError('OpenAI text-to-speech request failed: fetch is not available')
+  }
+
+  let response
+  try {
+    response = await fetch(`${config.openaiBaseUrl.replace(/\/$/, '')}/audio/speech`, {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${config.openaiApiKey}`,
+        'content-type': 'application/json',
+        accept: OPENAI_TTS_CONTENT_TYPE,
+      },
+      body: JSON.stringify({
+        model: config.openaiTtsModel,
+        voice,
+        input,
+        instructions,
+        response_format: OPENAI_TTS_RESPONSE_FORMAT,
+      }),
+      signal: createTimeoutSignal(config.openaiTtsTimeout),
+    })
+  } catch (err) {
+    throw new SpeechDependencyError(`OpenAI text-to-speech request failed: ${err instanceof Error ? err.message : String(err)}`, err)
+  }
+
+  if (!response.ok) {
+    const detail = await readContextWorkerErrorMessage(response)
+    throw new SpeechDependencyError(appendContextWorkerErrorMessage(
+      `OpenAI text-to-speech returned HTTP ${response.status}`,
+      detail,
+    ))
+  }
+
+  const audioBytes = Buffer.from(await response.arrayBuffer())
+  if (audioBytes.length === 0) {
+    throw new SpeechDependencyError('OpenAI text-to-speech returned empty audio')
+  }
+
+  return {
+    audioBytes,
+    contentType: response.headers.get('content-type') || OPENAI_TTS_CONTENT_TYPE,
+  }
 }
 
 async function runOllamaChat({ content, context }) {
@@ -2334,12 +3411,14 @@ function assertProviderDispatchAcceptsImageAttachments(requestBody) {
 
 async function runChatProvider(provider, requestBody, context = '') {
   assertProviderDispatchAcceptsImageAttachments(requestBody)
-  const imageAttachment = getChatImageAttachment(requestBody)
+  const providerRequestBody = await prepareRequestBodyForProvider(requestBody)
+  assertProviderDispatchAcceptsImageAttachments(providerRequestBody)
+  const imageAttachment = getChatImageAttachment(providerRequestBody)
   assertImageAttachmentSupportedByProvider(provider, imageAttachment)
 
   const chatInput = {
-    content: requestBody.content,
-    conversationId: requestBody.conversationId,
+    content: providerRequestBody.content,
+    conversationId: providerRequestBody.conversationId,
     context,
     imageAttachment,
   }
@@ -2370,7 +3449,9 @@ async function loadContextThenRunChatProvider(
   } = {},
 ) {
   assertProviderDispatchAcceptsImageAttachments(requestBody)
-  const imageAttachment = getChatImageAttachment(requestBody)
+  const providerRequestBody = await prepareRequestBodyForProvider(requestBody)
+  assertProviderDispatchAcceptsImageAttachments(providerRequestBody)
+  const imageAttachment = getChatImageAttachment(providerRequestBody)
   assertImageAttachmentSupportedByProvider(provider, imageAttachment)
 
   let chatContext
@@ -2395,7 +3476,7 @@ async function loadContextThenRunChatProvider(
     })
   }
 
-  const providerContent = await dispatchProvider(provider, requestBody, memoryBlock)
+  const providerContent = await dispatchProvider(provider, providerRequestBody, memoryBlock)
 
   return {
     chatContext,
@@ -2413,6 +3494,33 @@ fastify.get('/health', async () => ({
   status: 'ok',
   timestamp: new Date().toISOString()
 }))
+
+fastify.post('/auth/refresh-local', async (request, reply) => {
+  const localDecision = getLocalRefreshDecision(request)
+  reply.header('Cache-Control', 'no-store')
+
+  if (!localDecision.allowed) {
+    request.log.warn({
+      reason: localDecision.reason,
+      directClientIp: getDirectClientIp(request),
+    }, 'Case Hub token refresh denied')
+    reply.code(403)
+    return {
+      error: 'Forbidden',
+      message: 'Case Hub token refresh is only allowed from loopback or private LAN clients',
+    }
+  }
+
+  const refreshResult = await authTokenStore.refreshLocal()
+  return {
+    token: refreshResult.token,
+    header: CASE_HUB_TOKEN_RESPONSE_HEADER,
+    authorizationScheme: 'Bearer',
+    rotated: refreshResult.rotated,
+    rotationIntervalHours: configuredCaseHubTokenRotationIntervalHours(),
+    previousTokenGraceExpiresAt: refreshResult.previousTokenGraceExpiresAt,
+  }
+})
 
 fastify.get('/context', async request => memoryStore.getContextPayload({
   query: typeof request.query?.query === 'string'
@@ -2465,6 +3573,101 @@ fastify.delete('/context/memories/:memoryId', async (request, reply) => {
   }
 })
 
+function driveQueryString(query = {}) {
+  const searchParams = new URLSearchParams()
+  for (const [key, value] of Object.entries(query || {})) {
+    if (typeof value === 'string' && value.trim()) {
+      searchParams.set(key, value.trim())
+    }
+  }
+
+  const queryString = searchParams.toString()
+  return queryString ? `?${queryString}` : ''
+}
+
+fastify.get('/drive/files', async (request, reply) => {
+  try {
+    return normalizeDriveFileListPayload(
+      await fetchDriveWorkerJson(`/drive/files${driveQueryString(request.query)}`),
+    )
+  } catch (err) {
+    reply.code(502)
+    return buildDriveErrorResponse(err)
+  }
+})
+
+fastify.post('/drive/files', async (request, reply) => {
+  try {
+    return normalizeDriveFileMetadata(
+      await fetchDriveWorkerJson('/drive/files', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(request.body),
+      }),
+      'uploaded Drive file',
+    )
+  } catch (err) {
+    reply.code(502)
+    return buildDriveErrorResponse(err)
+  }
+})
+
+fastify.get('/drive/files/:fileId/metadata', async (request, reply) => {
+  try {
+    return normalizeDriveFileMetadata(
+      await fetchDriveWorkerJson(`/drive/files/${encodeURIComponent(request.params.fileId)}/metadata`),
+      'Drive file',
+    )
+  } catch (err) {
+    reply.code(502)
+    return buildDriveErrorResponse(err)
+  }
+})
+
+fastify.get('/drive/files/:fileId/download', async (request, reply) => {
+  if (typeof fetch !== 'function') {
+    reply.code(502)
+    return buildDriveErrorResponse(new DriveDependencyError('Drive file download failed: fetch is not available'))
+  }
+
+  let response
+  try {
+    response = await fetch(buildDriveWorkerUrl(`/drive/files/${encodeURIComponent(request.params.fileId)}/download`), {
+      method: 'GET',
+      signal: createDriveTimeoutSignal(),
+    })
+  } catch (err) {
+    reply.code(502)
+    return buildDriveErrorResponse(err)
+  }
+
+  if (!response.ok) {
+    const detail = await readDriveWorkerErrorMessage(response)
+    reply.code(response.status >= 400 && response.status < 500 ? response.status : 502)
+    return buildDriveErrorResponse(new DriveDependencyError(appendContextWorkerErrorMessage(
+      `Drive worker returned HTTP ${response.status}`,
+      detail,
+    )))
+  }
+
+  const contentType = response.headers.get('content-type') || 'application/octet-stream'
+  const contentLength = response.headers.get('content-length')
+  const contentDisposition = response.headers.get('content-disposition')
+  reply.type(contentType)
+  if (contentLength) {
+    reply.header('content-length', contentLength)
+  }
+  if (contentDisposition) {
+    reply.header('content-disposition', contentDisposition)
+  }
+
+  if (response.body && typeof Readable.fromWeb === 'function') {
+    return reply.send(Readable.fromWeb(response.body))
+  }
+
+  return reply.send(Buffer.from(await response.arrayBuffer()))
+})
+
 // Poll command result by executionId
 fastify.get('/command/result', async (request, reply) => {
   reply.code(404)
@@ -2493,6 +3696,34 @@ fastify.get('/command/result/*', async (request, reply) => {
   return buildCommandResultResponse(request.params['*'] || '', null)
 })
 
+fastify.post('/speech', async (request, reply) => {
+  const validationError = validateSpeechBody(request.body)
+  if (validationError) {
+    reply.code(400)
+    return buildValidationErrorResponse(validationError)
+  }
+
+  const speechRequest = normalizeSpeechRequestBody(request.body)
+
+  try {
+    const synthesized = await synthesizeOpenAiSpeech(speechRequest)
+    reply.type(synthesized.contentType)
+    reply.header('Cache-Control', 'no-store')
+    reply.header('Content-Length', String(synthesized.audioBytes.length))
+    reply.header('X-OpenAI-TTS-Voice', speechRequest.voice)
+    return reply.send(synthesized.audioBytes)
+  } catch (err) {
+    const speechError = buildSpeechErrorResponse(err)
+    request.log.error({
+      voice: speechRequest.voice,
+      model: config.openaiTtsModel,
+      error: speechError.message,
+    }, 'OpenAI text-to-speech failed')
+    reply.code(502)
+    return speechError
+  }
+})
+
 // Chat endpoint with in-process provider handling
 fastify.post('/chat', async (request, reply) => {
   const { body } = request
@@ -2513,6 +3744,10 @@ fastify.post('/chat', async (request, reply) => {
       logger: request.log,
     })
     const parsed = parseProviderContent(config.chatProvider, providerContent)
+    const generatedFiles = await uploadGeneratedDriveFiles(parsed.files, {
+      conversationId: chatRequest.conversationId,
+      logger: request.log,
+    })
 
     await persistProviderMemories({
       memories: parsed.memory,
@@ -2523,7 +3758,7 @@ fastify.post('/chat', async (request, reply) => {
       logger: request.log,
     })
 
-    return createSuccessfulChatResponse(parsed)
+    return createSuccessfulChatResponse(parsed, generatedFiles)
   } catch (err) {
     if (err instanceof MemoryDependencyError) {
       const memoryError = buildMemoryErrorResponse(err, config.chatProvider)
@@ -2533,6 +3768,17 @@ fastify.post('/chat', async (request, reply) => {
       })
       reply.code(502)
       return memoryError
+    }
+
+    if (err instanceof DriveDependencyError || err instanceof ProviderFileValidationError) {
+      const driveError = buildDriveErrorResponse(err)
+      request.log.error({
+        driveWorkerUrl: config.driveWorkerUrl,
+        conversationId: chatRequest.conversationId,
+        error: driveError.message,
+      }, 'Drive file operation failed')
+      reply.code(err instanceof ProviderFileValidationError ? 400 : 502)
+      return driveError
     }
 
     const providerError = buildProviderErrorResponse(config.chatProvider, err)
@@ -2585,17 +3831,21 @@ const start = async ({
 }
 
 export {
+  authTokenStore,
   buildCodexPrompt,
   buildCommandResultResponse,
   buildGptMessages,
   buildOllamaMessages,
   buildMemoryErrorResponse,
   buildProviderErrorResponse,
+  buildSpeechErrorResponse,
   buildValidationErrorResponse,
   CHAT_IMAGE_ATTACHMENT_MAX_SIZE_BYTES,
   commandResults,
   config,
+  DriveDependencyError,
   fastify,
+  FileAuthTokenStore,
   FileMemoryStore,
   formatSavedMemoryBlock,
   getSelectedChatProviderCapabilities,
@@ -2605,15 +3855,22 @@ export {
   logMemoryDependencyFailure,
   memoryStore,
   MemoryDependencyError,
+  normalizeSpeechRequestBody,
+  normalizeDriveFileListPayload,
+  normalizeDriveFileMetadata,
   normalizeMemoryRecord,
   normalizeChatImageAttachment,
   normalizeChatRequestBody,
   normalizeSuccessfulChatResponse,
   prepareProviderMemoriesForPersistence,
   persistProviderMemories,
+  ProviderFileValidationError,
+  SpeechDependencyError,
+  synthesizeOpenAiSpeech,
   parseContextResponsePayload,
   selectMemoriesForContext,
   start,
+  uploadGeneratedDriveFiles,
   validateLoadedChatContextForInjection,
   validateContextWorkerReachability,
   validateContextWorkerUrl,

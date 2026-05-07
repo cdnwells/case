@@ -37,3 +37,21 @@ test("outgoing chat payload includes accepted image/jpeg attachment metadata and
   assert.match(chatServiceSource, /createChatMessagePayload\(request\)/);
   assert.match(chatPayloadSource, /createNetworkSafeJsonBody\(request\)/);
 });
+
+test("outgoing chat payload preserves Google Drive file attachments", () => {
+  const request = {
+    content: "Summarize this Drive file.",
+    attachments: [
+      {
+        type: "drive-file",
+        driveFileId: "drive-file-123",
+        name: "notes.txt",
+        mimeType: "text/plain",
+        sizeBytes: 128,
+        source: "google-drive",
+      },
+    ],
+  };
+
+  assert.deepEqual(JSON.parse(createNetworkSafeJsonBody(request)), request);
+});

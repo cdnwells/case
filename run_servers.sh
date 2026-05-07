@@ -13,6 +13,8 @@ DRY_RUN=0
 HOST="${HOST:-0.0.0.0}"
 DEBUG="${DEBUG:-false}"
 LOG_DIR="${LOG_DIR:-$ROOT_DIR/.logs}"
+LOG_RUN_ID="${LOG_RUN_ID:-}"
+RUN_LOG_DIR=""
 NODE_BIN="${NODE_BIN:-node}"
 
 if [[ -z "${PYTHON_BIN:-}" ]]; then
@@ -40,6 +42,7 @@ Prompts for the hub chat provider with arrow-key selection before starting.
 
 Environment:
   CHAT_PROVIDER=codex|claude|gpt|ollama  Skip the prompt and start with this provider
+  LOG_RUN_ID=STRING                       Override the daily folder name under --log-dir
 
 Options:
   --executor codex|claude     Legacy option; worker executors are not started in v1
@@ -58,7 +61,7 @@ Options:
   --ssh-port PORT             SSH worker port (default: 8005)
   --python-bin PATH           Python executable (default: .venv/bin/python if present, else python3)
   --node-bin PATH             Node executable (default: node)
-  --log-dir DIR               Directory for server logs (default: .logs)
+  --log-dir DIR               Root directory for daily server logs (default: .logs)
   --dry-run                   Print commands without starting servers
   -h, --help                  Show this help
 
@@ -397,6 +400,18 @@ names=()
 log_files=()
 tail_pids=()
 
+prepare_log_dir() {
+  if [[ "$LOG_DIR" != /* ]]; then
+    LOG_DIR="$ROOT_DIR/$LOG_DIR"
+  fi
+
+  if [[ -z "$LOG_RUN_ID" ]]; then
+    LOG_RUN_ID="$(date +'%y%m%d')"
+  fi
+
+  RUN_LOG_DIR="$LOG_DIR/$LOG_RUN_ID"
+}
+
 validate_chat_provider() {
   case "$1" in
     codex|claude|gpt|ollama)
@@ -447,7 +462,7 @@ start_process() {
   local name="$1"
   local dir="$2"
   shift 2
-  local log_file="$LOG_DIR/$name.log"
+  local log_file="$RUN_LOG_DIR/$name.log"
 
   if [[ "$DRY_RUN" -eq 1 ]]; then
     printf '[dry-run] (%s) cd %s &&' "$name" "$dir"
@@ -456,12 +471,12 @@ start_process() {
     return
   fi
 
-  mkdir -p "$LOG_DIR"
+  mkdir -p "$RUN_LOG_DIR"
   (
     cd "$dir"
     printf '[%s] starting %s\n' "$(date -Is)" "$name"
     exec "$@"
-  ) >"$log_file" 2>&1 &
+  ) >>"$log_file" 2>&1 &
 
   local pid="$!"
   pids+=("$pid")
@@ -496,8 +511,13 @@ cleanup() {
 
 trap cleanup EXIT INT TERM
 
+prepare_log_dir
+
 if [[ "$START_HUB" -eq 1 ]]; then
   SELECTED_CHAT_PROVIDER="$(select_hub_provider)"
+  if [[ "$DRY_RUN" -ne 1 ]]; then
+    echo "Log folder: $RUN_LOG_DIR"
+  fi
   start_process "hub" "$ROOT_DIR/hub" env \
     PORT="$HUB_PORT" \
     CHAT_PROVIDER="$SELECTED_CHAT_PROVIDER" \

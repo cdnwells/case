@@ -27,6 +27,7 @@ const {
 } = await import('./hub.js')
 const originalFetch = globalThis.fetch
 const originalConfig = { ...config }
+const TEST_CASE_HUB_TOKEN = 'test-case-hub-token'
 const failingCodexPath = new URL('./test-fixtures/failing-codex-cli.js', import.meta.url).pathname
 const failingClaudePath = new URL('./test-fixtures/failing-claude-cli.js', import.meta.url).pathname
 const repoRootUrl = new URL('../', import.meta.url)
@@ -46,6 +47,7 @@ test.after(async () => {
   delete process.env.FAKE_CODEX_CAPTURE_ARGS_PATH
   delete process.env.FAKE_CODEX_CAPTURE_IMAGES_PATH
   delete process.env.FAKE_CODEX_CAPTURE_PROMPT_PATH
+  delete process.env.FAKE_CODEX_DELAY_MS
   delete process.env.FAKE_CODEX_RESPONSE
   delete process.env.FAKE_CLAUDE_RESPONSE
   globalThis.fetch = originalFetch
@@ -55,6 +57,9 @@ test.after(async () => {
 test.beforeEach(() => {
   commandResults.clear()
   Object.assign(config, originalConfig)
+  delete config.codexChatTimeout
+  delete config.claudeChatTimeout
+  config.caseHubToken = TEST_CASE_HUB_TOKEN
   config.contextWorkerUrl = 'http://context.test'
   delete process.env.FAKE_CODEX_EXPECT_PROMPT_CONTAINS
   delete process.env.FAKE_CODEX_REJECT_PROMPT_CONTAINS
@@ -62,16 +67,21 @@ test.beforeEach(() => {
   delete process.env.FAKE_CODEX_CAPTURE_ARGS_PATH
   delete process.env.FAKE_CODEX_CAPTURE_IMAGES_PATH
   delete process.env.FAKE_CODEX_CAPTURE_PROMPT_PATH
+  delete process.env.FAKE_CODEX_DELAY_MS
   delete process.env.FAKE_CODEX_RESPONSE
   delete process.env.FAKE_CLAUDE_RESPONSE
   globalThis.fetch = originalFetch
 })
 
 async function postChat(payload) {
+  config.caseHubToken = TEST_CASE_HUB_TOKEN
   return fastify.inject({
     method: 'POST',
     url: '/chat',
-    headers: { 'content-type': 'application/json' },
+    headers: {
+      'content-type': 'application/json',
+      'x-case-hub-token': TEST_CASE_HUB_TOKEN,
+    },
     payload,
   })
 }
@@ -3448,6 +3458,32 @@ test('POST /chat with codex returns HTTP 200 and Android message fields', async 
     assert.equal(fetchCalls.length, 1)
     assertContextFetch(fetchCalls[0])
   } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
+test('POST /chat runs codex provider without a process timeout', async () => {
+  const fetchCalls = mockContextFetch()
+  config.codexChatTimeout = 0.01
+  process.env.FAKE_CODEX_DELAY_MS = '20'
+  process.env.FAKE_CODEX_RESPONSE = JSON.stringify({
+    message: 'finished after waiting',
+  })
+
+  try {
+    const response = await postChat({
+      content: 'slow but allowed',
+      conversationId: 'test',
+    })
+
+    assert.equal(response.statusCode, 200)
+    assert.equal(response.json().message.content, 'finished after waiting')
+    assert.equal(fetchCalls.length, 1)
+    assertContextFetch(fetchCalls[0])
+  } finally {
+    delete config.codexChatTimeout
+    delete process.env.FAKE_CODEX_DELAY_MS
+    delete process.env.FAKE_CODEX_RESPONSE
     globalThis.fetch = originalFetch
   }
 })
