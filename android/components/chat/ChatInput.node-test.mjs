@@ -130,13 +130,18 @@ expectIncludes(
   "speech recognition keeps the default silence timeout for normal command capture",
 );
 expectIncludes(
+  chatInputSource,
+  "const DEFAULT_VOICE_INPUT_SILENCE_TIMEOUT_MS = 8000",
+  "chat input gives normal voice command capture a longer silence timeout",
+);
+expectIncludes(
   voiceInputBindingSource,
   "requireApprovedVoiceGate: true",
   "speech recognition requires approved voice gate metadata before processing starts",
 );
 expectIncludes(
   chatInputSource,
-  "const WAKE_WORD_VOICE_INPUT_SILENCE_TIMEOUT_MS = 8000",
+  "const WAKE_WORD_VOICE_INPUT_SILENCE_TIMEOUT_MS = 12000",
   "chat input gives wake-word-triggered speech a longer silence timeout",
 );
 expectIncludes(

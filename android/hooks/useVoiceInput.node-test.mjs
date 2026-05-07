@@ -60,6 +60,11 @@ expectEqual(
   "voice input accepts a per-recording silence timeout override",
 );
 expectEqual(
+  useVoiceInputSource.includes("silenceTimeout = 8000"),
+  true,
+  "voice input defaults to a longer silence timeout",
+);
+expectEqual(
   useVoiceInputSource.includes(
     "silenceTimeout: recordingSilenceTimeout = silenceTimeout",
   ),

@@ -5,6 +5,9 @@ import type {
 
 const LANGUAGE_MODEL_FREE_FORM = "free_form";
 const LANGUAGE_MODEL_WEB_SEARCH = "web_search";
+const SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_RATIO = 0.75;
+const SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_MIN_MS = 2000;
+const SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_MAX_MS = 6000;
 
 export const CASE_RECOGNITION_LANGUAGE_HINTS = ["ko-KR", "en-US"];
 
@@ -143,15 +146,26 @@ export function createSpeechInputAndroidIntentOptions({
 }: {
   silenceTimeout: number;
 }): Partial<AndroidIntentOptions> {
+  const possiblyCompleteSilenceTimeout = Math.min(
+    silenceTimeout,
+    Math.max(
+      SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_MIN_MS,
+      Math.min(
+        SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_MAX_MS,
+        Math.floor(
+          silenceTimeout * SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_RATIO,
+        ),
+      ),
+    ),
+  );
+
   return {
     EXTRA_ENABLE_LANGUAGE_DETECTION: true,
     EXTRA_LANGUAGE_DETECTION_ALLOWED_LANGUAGES: CASE_RECOGNITION_LANGUAGE_HINTS,
     EXTRA_LANGUAGE_MODEL: LANGUAGE_MODEL_FREE_FORM,
     EXTRA_SPEECH_INPUT_MINIMUM_LENGTH_MILLIS: 1200,
     EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS: silenceTimeout,
-    EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS: Math.max(
-      1000,
-      Math.min(2000, Math.floor(silenceTimeout / 2)),
-    ),
+    EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS:
+      possiblyCompleteSilenceTimeout,
   };
 }

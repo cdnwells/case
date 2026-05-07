@@ -65,7 +65,7 @@ interface StartRecordingOptions {
 export function useVoiceInput({
   onTranscript,
   locale = "ko-KR",
-  silenceTimeout = 4000,
+  silenceTimeout = 8000,
   active = true,
   requireApprovedVoiceGate = false,
 }: UseVoiceInputOptions): UseVoiceInputReturn {
