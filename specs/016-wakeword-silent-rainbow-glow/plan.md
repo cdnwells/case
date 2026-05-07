@@ -1,4 +1,4 @@
-# 015 - Wake Word Silent Response with Rainbow Glow Effect
+# 016 - Wake Word Silent Response with Rainbow Glow Effect
 
 ## Context
 
