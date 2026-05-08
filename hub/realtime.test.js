@@ -39,10 +39,9 @@ test.beforeEach(() => {
     openaiRealtimeModel: 'gpt-realtime-2',
     openaiRealtimeVoice: 'cedar',
     openaiRealtimeInstructions: 'Speak as Case in Korean realtime voice mode.',
-    openaiRealtimeReasoningEffort: 'medium',
-    openaiRealtimeTranscriptionModel: 'gpt-realtime-whisper',
+    openaiRealtimeTranscriptionModel: 'gpt-4o-mini-transcribe',
     openaiRealtimeTranscriptionLanguage: 'ko',
-    openaiRealtimeTurnDetectionEagerness: 'low',
+    openaiRealtimeTurnDetectionEagerness: 'high',
     openaiRealtimeTimeout: 12,
   })
   globalThis.fetch = originalFetch
@@ -81,7 +80,6 @@ test('realtime call endpoint exchanges a WebRTC offer for an OpenAI SDP answer',
   assert.match(response.headers['content-type'], /^application\/sdp/)
   assert.equal(response.headers['x-openai-realtime-model'], 'gpt-realtime-2')
   assert.equal(response.headers['x-openai-realtime-voice'], 'cedar')
-  assert.equal(response.headers['x-openai-realtime-reasoning-effort'], 'medium')
   assert.equal(response.body, 'v=0\r\nanswer')
   assert.equal(capturedCall.url, 'https://api.openai.test/v1/realtime/calls')
   assert.equal(capturedCall.options.method, 'POST')
@@ -99,16 +97,17 @@ test('realtime call endpoint exchanges a WebRTC offer for an OpenAI SDP answer',
     model: 'gpt-realtime-2',
     instructions: 'Speak as Case in Korean realtime voice mode.',
     output_modalities: ['audio'],
-    reasoning: { effort: 'medium' },
     audio: {
       input: {
         transcription: {
-          model: 'gpt-realtime-whisper',
+          model: 'gpt-4o-mini-transcribe',
           language: 'ko',
         },
         turn_detection: {
           type: 'semantic_vad',
-          eagerness: 'low',
+          eagerness: 'high',
+          create_response: true,
+          interrupt_response: true,
         },
       },
       output: { voice: 'cedar' },

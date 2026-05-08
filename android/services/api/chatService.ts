@@ -323,8 +323,6 @@ export class ChatService implements IChatService {
       sdp,
       model: response.headers.get("x-openai-realtime-model") || "",
       voice,
-      reasoningEffort:
-        response.headers.get("x-openai-realtime-reasoning-effort") || "",
       contentType: response.headers.get("content-type") || "application/sdp",
     };
   }

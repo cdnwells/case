@@ -77,7 +77,6 @@ export class MockChatService implements IChatService {
       sdp: request.sdp,
       model: 'mock-realtime',
       voice: 'marin',
-      reasoningEffort: 'low',
       contentType: 'application/sdp',
     };
   }

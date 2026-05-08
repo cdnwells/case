@@ -37,7 +37,6 @@ export interface CreateRealtimeCallResponse {
   sdp: string;
   model: string;
   voice: OpenAITtsVoice;
-  reasoningEffort: string;
   contentType: string;
 }
 
