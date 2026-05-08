@@ -8,9 +8,22 @@ function providerIndex(provider, providers = CHAT_PROVIDERS) {
   return index === -1 ? 0 : index
 }
 
-function renderProviderMenu(selectedIndex, providers = CHAT_PROVIDERS) {
+function normalizeAppEnv(value) {
+  return typeof value === 'string' ? value.trim().toLowerCase() : ''
+}
+
+function isDevelopmentAppEnv(appEnv) {
+  const normalizedAppEnv = normalizeAppEnv(appEnv)
+  return normalizedAppEnv === 'development' || normalizedAppEnv === 'dev' || normalizedAppEnv === 'local'
+}
+
+function renderProviderMenu(selectedIndex, providers = CHAT_PROVIDERS, appEnv = '') {
+  const normalizedAppEnv = normalizeAppEnv(appEnv)
   const lines = [
     'Select chat provider',
+    ...(normalizedAppEnv
+      ? [`App environment: ${normalizedAppEnv}${isDevelopmentAppEnv(normalizedAppEnv) ? ' (local/LAN token bypass)' : ''}`]
+      : []),
     'Use arrow keys to choose a provider, then press Enter.',
     '',
   ]
@@ -23,13 +36,13 @@ function renderProviderMenu(selectedIndex, providers = CHAT_PROVIDERS) {
   return lines
 }
 
-function renderMenu(output, renderedLineCount, selectedIndex, providers) {
+function renderMenu(output, renderedLineCount, selectedIndex, providers, appEnv) {
   if (renderedLineCount > 0) {
     readline.moveCursor(output, 0, -renderedLineCount)
     readline.clearScreenDown(output)
   }
 
-  const lines = renderProviderMenu(selectedIndex, providers)
+  const lines = renderProviderMenu(selectedIndex, providers, appEnv)
   output.write(`${lines.join('\n')}\n`)
   return lines.length
 }
@@ -39,11 +52,12 @@ export async function selectStartupChatProvider({
   output = process.stdout,
   providers = CHAT_PROVIDERS,
   defaultProvider = DEFAULT_CHAT_PROVIDER,
+  appEnv = '',
 } = {}) {
   let selectedIndex = providerIndex(defaultProvider, providers)
 
   if (!input.isTTY || !output.isTTY || typeof input.setRawMode !== 'function') {
-    renderProviderMenu(selectedIndex, providers).forEach(line => output.write(`${line}\n`))
+    renderProviderMenu(selectedIndex, providers, appEnv).forEach(line => output.write(`${line}\n`))
     output.write(`Non-interactive terminal detected; using ${providers[selectedIndex]}.\n`)
     return providers[selectedIndex]
   }
@@ -88,20 +102,20 @@ export async function selectStartupChatProvider({
 
       if (key.name === 'down' || key.name === 'right' || key.name === 'tab') {
         selectedIndex = (selectedIndex + 1) % providers.length
-        renderedLineCount = renderMenu(output, renderedLineCount, selectedIndex, providers)
+        renderedLineCount = renderMenu(output, renderedLineCount, selectedIndex, providers, appEnv)
         return
       }
 
       if (key.name === 'up' || key.name === 'left') {
         selectedIndex = (selectedIndex - 1 + providers.length) % providers.length
-        renderedLineCount = renderMenu(output, renderedLineCount, selectedIndex, providers)
+        renderedLineCount = renderMenu(output, renderedLineCount, selectedIndex, providers, appEnv)
         return
       }
 
       const numericChoice = Number.parseInt(str, 10)
       if (numericChoice >= 1 && numericChoice <= providers.length) {
         selectedIndex = numericChoice - 1
-        renderedLineCount = renderMenu(output, renderedLineCount, selectedIndex, providers)
+        renderedLineCount = renderMenu(output, renderedLineCount, selectedIndex, providers, appEnv)
       }
     }
 
@@ -109,6 +123,6 @@ export async function selectStartupChatProvider({
     input.setRawMode(true)
     input.resume()
     input.on('keypress', onKeypress)
-    renderedLineCount = renderMenu(output, renderedLineCount, selectedIndex, providers)
+    renderedLineCount = renderMenu(output, renderedLineCount, selectedIndex, providers, appEnv)
   })
 }

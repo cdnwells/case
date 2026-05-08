@@ -168,13 +168,14 @@ select_hub_provider() {
 
   (
     cd "$ROOT_DIR/hub"
-    "$NODE_BIN" --input-type=module --eval '
+    APP_ENV="$HUB_APP_ENV" "$NODE_BIN" --input-type=module --eval '
 import { selectStartupChatProvider } from "./providerMenu.js"
 
 try {
   const provider = await selectStartupChatProvider({
     input: process.stdin,
     output: process.stderr,
+    appEnv: process.env.APP_ENV,
   })
   process.stdout.write(provider)
 } catch (err) {
@@ -251,8 +252,8 @@ trap cleanup EXIT INT TERM
 
 prepare_log_dir
 
-SELECTED_CHAT_PROVIDER="$(select_hub_provider)"
 HUB_APP_ENV="${APP_ENV:-development}"
+SELECTED_CHAT_PROVIDER="$(select_hub_provider)"
 if [[ "$DRY_RUN" -ne 1 ]]; then
   echo "Log folder: $RUN_LOG_DIR"
 fi
