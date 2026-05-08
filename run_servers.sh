@@ -42,6 +42,7 @@ Prompts for the hub chat provider with arrow-key selection before starting.
 
 Environment:
   CHAT_PROVIDER=codex|claude|gpt|ollama  Skip the prompt and start with this provider
+  APP_ENV=production|development          App environment; default is development for this local runner
   LOG_RUN_ID=STRING                       Override the daily folder name under --log-dir
 
 Options:
@@ -521,6 +522,7 @@ if [[ "$START_HUB" -eq 1 ]]; then
   start_process "hub" "$ROOT_DIR/hub" env \
     PORT="$HUB_PORT" \
     CHAT_PROVIDER="$SELECTED_CHAT_PROVIDER" \
+    APP_ENV="${APP_ENV:-development}" \
     "$NODE_BIN" hub.js
 fi
 

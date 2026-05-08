@@ -64,6 +64,7 @@ const config = {
   caseHubTokenFileName: process.env.CASE_HUB_TOKEN_FILE || 'auth-token.json',
   caseHubTokenGraceSeconds: parseInt(process.env.CASE_HUB_TOKEN_GRACE_SECONDS || '1800', 10),
   caseHubTokenRotationIntervalHours: parseFloat(process.env.CASE_HUB_TOKEN_ROTATION_INTERVAL_HOURS || '24'),
+  appEnv: process.env.APP_ENV || 'production',
 }
 
 async function validateSelectedChatProvider(logger) {
@@ -434,6 +435,23 @@ function getLocalRefreshDecision(request) {
   return { allowed: true, reason: 'local_or_lan' }
 }
 
+function normalizeAppEnv(value) {
+  return typeof value === 'string' ? value.trim().toLowerCase() : ''
+}
+
+function isCaseHubAuthBypassedForRequest(request) {
+  const appEnv = normalizeAppEnv(config.appEnv)
+  if (appEnv === 'disabled' || appEnv === 'off' || appEnv === 'none') {
+    return true
+  }
+
+  if (appEnv === 'development' || appEnv === 'dev' || appEnv === 'local') {
+    return getLocalRefreshDecision(request).allowed
+  }
+
+  return false
+}
+
 class FileAuthTokenStore {
   constructor(configRef) {
     this.config = configRef
@@ -633,6 +651,10 @@ fastify.addHook('onRequest', async (request, reply) => {
   }
 
   if (isProtectedHubPath(pathname)) {
+    if (isCaseHubAuthBypassedForRequest(request)) {
+      return
+    }
+
     const token = extractCaseHubToken(request)
     const isAuthenticated = await authTokenStore.verifyToken(token)
     if (!isAuthenticated) {

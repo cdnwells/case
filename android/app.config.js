@@ -24,6 +24,10 @@ const APP_VARIANTS = {
   },
 };
 
+function normalizeOptionalString(value) {
+  return typeof value === "string" && value.trim() ? value.trim() : "";
+}
+
 function resolveAppVariant() {
   const variant = process.env.APP_VARIANT || process.env.EAS_BUILD_PROFILE;
 
@@ -133,6 +137,16 @@ module.exports = ({ config }) => {
   const isDevelopmentVariant = appVariant === "development";
   const isProductionVariant = appVariant === "production";
   const scheme = `${config.scheme}${variantConfig.schemeSuffix}`;
+  const caseHubBootstrapToken = normalizeOptionalString(
+    process.env.CASE_HUB_BOOTSTRAP_TOKEN ||
+      process.env.EXPO_PUBLIC_CASE_HUB_TOKEN ||
+      process.env.CASE_HUB_TOKEN,
+  );
+  const appEnv =
+    normalizeOptionalString(
+      process.env.EXPO_PUBLIC_APP_ENV ||
+        process.env.APP_ENV,
+    ) || (isDevelopmentVariant ? "development" : "production");
 
   return {
     ...config,
@@ -160,6 +174,8 @@ module.exports = ({ config }) => {
     extra: {
       ...config.extra,
       appVariant,
+      appEnv,
+      ...(caseHubBootstrapToken ? { caseHubBootstrapToken } : {}),
       devModeDebuggingEnabled: isDevelopmentVariant,
       smartphoneOnly: {
         platform: "android",

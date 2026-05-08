@@ -32,6 +32,7 @@ async function configureIsolatedAuth(t, overrides = {}) {
     caseHubTokenFileName: 'auth-token.json',
     caseHubTokenGraceSeconds: 1800,
     caseHubTokenRotationIntervalHours: 24,
+    appEnv: 'production',
     ...overrides,
   })
 
@@ -109,6 +110,30 @@ test('sensitive hub routes require a Case Hub token while public routes stay ope
     url: '/robots.txt',
   })
   assert.equal(robotsResponse.statusCode, 200)
+})
+
+test('development app environment bypasses token checks only for local or LAN requests', async (t) => {
+  await configureIsolatedAuth(t, {
+    appEnv: 'development',
+  })
+
+  const localResponse = await fastify.inject({
+    method: 'GET',
+    url: '/context',
+    headers: {
+      'x-forwarded-for': '192.168.1.20',
+    },
+  })
+  assert.equal(localResponse.statusCode, 200)
+
+  const publicForwardedResponse = await fastify.inject({
+    method: 'GET',
+    url: '/context',
+    headers: {
+      'x-forwarded-for': '203.0.113.10',
+    },
+  })
+  assert.equal(publicForwardedResponse.statusCode, 401)
 })
 
 test('LAN refresh rotates only once per interval and keeps the previous token in grace', async (t) => {

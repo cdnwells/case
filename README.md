@@ -84,6 +84,7 @@ Hub의 `/chat`, `/context*`, `/command*`, `/commands*` 경로는 `X-Case-Hub-Tok
 주요 설정:
 
 ```bash
+APP_ENV=production|development             # development allows local/LAN requests without a token
 CASE_HUB_TOKEN=...                         # 초기/고정 또는 비상 fallback 토큰
 CASE_HUB_TOKEN_GRACE_SECONDS=1800          # 이전 토큰 허용 시간
 CASE_HUB_TOKEN_ROTATION_INTERVAL_HOURS=24  # 0이면 기존 토큰 유지

@@ -8,6 +8,8 @@ import type {
 import { Directory, File, Paths } from "expo-file-system";
 import {
   API_BASE_URL,
+  CASE_HUB_AUTH_ENABLED,
+  CASE_HUB_BOOTSTRAP_TOKEN,
   IChatService,
   type OpenAITtsVoice,
   type SynthesizeSpeechRequest,
@@ -32,7 +34,9 @@ function sanitizeDownloadFileName(name: string): string {
 }
 
 export class ChatService implements IChatService {
+  private authEnabled: boolean;
   private baseUrl: string;
+  private bootstrapToken: string;
   private tokenStore: CaseHubTokenStore;
   private hasInitialRefreshCompleted = false;
   private tokenRefreshPromise: Promise<boolean> | null = null;
@@ -40,8 +44,12 @@ export class ChatService implements IChatService {
   constructor(
     baseUrl: string = API_BASE_URL,
     tokenStore: CaseHubTokenStore = caseHubTokenStore,
+    bootstrapToken: string = CASE_HUB_BOOTSTRAP_TOKEN,
+    authEnabled: boolean = CASE_HUB_AUTH_ENABLED,
   ) {
+    this.authEnabled = authEnabled;
     this.baseUrl = baseUrl;
+    this.bootstrapToken = bootstrapToken.trim();
     this.tokenStore = tokenStore;
   }
 
@@ -70,7 +78,24 @@ export class ChatService implements IChatService {
     }
   }
 
-  async refreshLocalToken(): Promise<boolean> {
+  private async storePublishedBootstrapToken(): Promise<boolean> {
+    if (!this.bootstrapToken) {
+      return false;
+    }
+
+    await this.tokenStore.setToken(this.bootstrapToken);
+    this.hasInitialRefreshCompleted = true;
+    return true;
+  }
+
+  async refreshLocalToken({
+    allowPublishedBootstrapToken = false,
+  }: { allowPublishedBootstrapToken?: boolean } = {}): Promise<boolean> {
+    if (!this.authEnabled) {
+      this.hasInitialRefreshCompleted = true;
+      return false;
+    }
+
     if (!this.tokenRefreshPromise) {
       this.tokenRefreshPromise = this.fetchLocalToken().finally(() => {
         this.tokenRefreshPromise = null;
@@ -84,10 +109,11 @@ export class ChatService implements IChatService {
     }
 
     const existingToken = await this.tokenStore.getToken().catch(() => null);
-    if (existingToken) {
+    if (existingToken && !allowPublishedBootstrapToken) {
       this.hasInitialRefreshCompleted = true;
+      return false;
     }
-    return false;
+    return this.storePublishedBootstrapToken();
   }
 
   private async ensureInitialTokenRefreshAttempted(): Promise<void> {
@@ -101,6 +127,10 @@ export class ChatService implements IChatService {
   private async createHeaders(
     headers: Record<string, string> = {},
   ): Promise<Record<string, string>> {
+    if (!this.authEnabled) {
+      return headers;
+    }
+
     const token = await this.tokenStore.getToken().catch(() => null);
     return token
       ? { ...headers, [CASE_HUB_TOKEN_HEADER]: token }
@@ -120,11 +150,13 @@ export class ChatService implements IChatService {
       });
 
     const response = await request();
-    if (response.status !== 401) {
+    if (!this.authEnabled || response.status !== 401) {
       return response;
     }
 
-    const refreshed = await this.refreshLocalToken();
+    const refreshed = await this.refreshLocalToken({
+      allowPublishedBootstrapToken: true,
+    });
     return refreshed ? request() : response;
   }
 
