@@ -8,6 +8,8 @@ import {
   SendMessageResponse,
 } from '@/types/chat';
 import type {
+  CreateRealtimeCallRequest,
+  CreateRealtimeCallResponse,
   SynthesizeSpeechRequest,
   SynthesizeSpeechResponse,
 } from './types';
@@ -64,6 +66,19 @@ export class MockChatService implements IChatService {
       uri: `mock://speech/${encodeURIComponent(request.input.slice(0, 24))}`,
       voice: request.voice || 'marin',
       contentType: 'audio/mpeg',
+    };
+  }
+
+  async createRealtimeCall(
+    request: CreateRealtimeCallRequest,
+  ): Promise<CreateRealtimeCallResponse> {
+    await new Promise(resolve => setTimeout(resolve, this.delay));
+    return {
+      sdp: request.sdp,
+      model: 'mock-realtime',
+      voice: 'marin',
+      reasoningEffort: 'low',
+      contentType: 'application/sdp',
     };
   }
 }

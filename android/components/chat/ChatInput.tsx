@@ -1,10 +1,12 @@
 import { IconSymbol } from "@/components/ui/icon-symbol";
+import type { ApprovedSpeechAudioReleaseReason } from "@/constants/audioBuffer";
 import { useColorScheme } from "@/hooks/use-color-scheme";
 import { useThemeColor } from "@/hooks/use-theme-color";
 import {
   useApprovedVoiceGate,
   type ApprovedVoiceRecognitionEvent,
 } from "@/hooks/useApprovedVoiceGate";
+import { useOpenAIRealtimeConversation } from "@/hooks/useOpenAIRealtimeConversation";
 import {
   APPROVED_AUDIO_EXPLICIT_SAVE_FLOW_EMPTY_PURPOSE_ERROR,
   saveApprovedAudioForUserVisibleLaterUse,
@@ -117,6 +119,7 @@ export function ChatInput({
   const [isSavingApprovedAudio, setIsSavingApprovedAudio] = useState(false);
   const hasStartedRecording = useRef(false);
   const voiceInputCanSubmitRef = useRef(false);
+  const realtimeVoiceModeRef = useRef(false);
   const textInputRef = useRef<TextInput>(null);
   const colorScheme = useColorScheme();
 
@@ -147,6 +150,40 @@ export function ChatInput({
     setApprovedAudioSaveError(null);
     setIsSavingApprovedAudio(false);
   }, []);
+
+  const releaseApprovedAudioSaveFlow = useCallback(
+    (reason: ApprovedSpeechAudioReleaseReason) => {
+      approvedAudioSaveCandidate?.releaseCapturedAudio(reason);
+      clearApprovedAudioSaveFlow();
+    },
+    [approvedAudioSaveCandidate, clearApprovedAudioSaveFlow],
+  );
+
+  const handleRealtimeUserTranscript = useCallback(
+    (transcript: string) => {
+      onLocalMessage?.(transcript, "user");
+    },
+    [onLocalMessage],
+  );
+
+  const handleRealtimeAssistantTranscript = useCallback(
+    (transcript: string) => {
+      onLocalMessage?.(transcript, "assistant");
+    },
+    [onLocalMessage],
+  );
+
+  const {
+    state: realtimeState,
+    isConnecting: isRealtimeConnecting,
+    isActive: isRealtimeVoiceMode,
+    start: startRealtimeConversation,
+    stop: stopRealtimeConversation,
+  } = useOpenAIRealtimeConversation({
+    createRealtimeCall: chatService.createRealtimeCall?.bind(chatService),
+    onUserTranscript: handleRealtimeUserTranscript,
+    onAssistantTranscript: handleRealtimeAssistantTranscript,
+  });
 
   // Auto-speak new assistant responses when TTS is enabled
   useEffect(() => {
@@ -191,6 +228,36 @@ export function ChatInput({
     active: isVoiceMode,
     requireApprovedVoiceGate: true,
   });
+
+  const startRealtimeVoiceMode = useCallback(
+    async (
+      activationSource: "approved_voice" | "wake_word" | "manual",
+      safetyIdentifier?: string,
+    ) => {
+      if (isSpeaking) {
+        stopSpeaking();
+      }
+
+      hasStartedRecording.current = false;
+      voiceInputCanSubmitRef.current = false;
+      setIsTTSEnabled(false);
+      setIsTTSButtonToggled(false);
+      setIsVoiceMode(true);
+      textInputRef.current?.blur();
+
+      const started = await startRealtimeConversation({
+        activationSource,
+        ...(safetyIdentifier ? { safetyIdentifier } : {}),
+      });
+      realtimeVoiceModeRef.current = started;
+      if (!started) {
+        setIsVoiceMode(false);
+      }
+
+      return started;
+    },
+    [isSpeaking, startRealtimeConversation, stopSpeaking],
+  );
 
   const canListenForVoiceActivation =
     !disabled &&
@@ -237,12 +304,44 @@ export function ChatInput({
     clearApprovedAudioSaveFlow,
   ]);
 
+  useEffect(() => {
+    if (
+      realtimeVoiceModeRef.current &&
+      !isRealtimeVoiceMode &&
+      (realtimeState === "idle" ||
+        realtimeState === "error" ||
+        realtimeState === "unavailable")
+    ) {
+      realtimeVoiceModeRef.current = false;
+      setIsVoiceMode(false);
+      voiceInputCanSubmitRef.current = false;
+      releaseApprovedAudioSaveFlow(
+        realtimeState === "idle" ? "processing_complete" : "processing_error",
+      );
+    }
+  }, [isRealtimeVoiceMode, realtimeState, releaseApprovedAudioSaveFlow]);
+
   // Approved voice detection starts voice input without requiring a wake word.
   const handleApprovedVoiceDetected = useCallback(async (
     result: ApprovedVoiceRecognitionEvent,
   ) => {
-    if (isSpeaking) {
-      stopSpeaking();
+    releaseApprovedAudioSaveFlow("processing_replaced");
+    const realtimeStarted = await startRealtimeVoiceMode(
+      "approved_voice",
+      result.matchedVoiceId,
+    );
+    if (realtimeStarted) {
+      setApprovedAudioSaveCandidate(result);
+      setApprovedAudioSavePurpose("");
+      setApprovedAudioSaveError(null);
+      setIsSavingApprovedAudio(false);
+
+      if (Platform.OS !== "web") {
+        void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy).catch(() => {
+          // Voice processing has already started; haptics must stay off the path.
+        });
+      }
+      return;
     }
 
     hasStartedRecording.current = false;
@@ -279,22 +378,28 @@ export function ChatInput({
 
     setIsTTSEnabled(true);
   }, [
-    isSpeaking,
-    stopSpeaking,
     startRecording,
     clearApprovedAudioSaveFlow,
+    releaseApprovedAudioSaveFlow,
+    startRealtimeVoiceMode,
   ]);
 
   const handleWakeWordDetected = useCallback(async () => {
     if (!wakeWordFallbackEnabled) return;
 
-    if (isSpeaking) {
-      stopSpeaking();
+    releaseApprovedAudioSaveFlow("processing_replaced");
+    const realtimeStarted = await startRealtimeVoiceMode("wake_word");
+    if (realtimeStarted) {
+      if (Platform.OS !== "web") {
+        void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy).catch(() => {
+          // Voice processing has already started; haptics must stay off the path.
+        });
+      }
+      return;
     }
 
     hasStartedRecording.current = false;
     voiceInputCanSubmitRef.current = true;
-    clearApprovedAudioSaveFlow();
     setIsVoiceMode(true);
     textInputRef.current?.blur();
 
@@ -318,10 +423,10 @@ export function ChatInput({
     setIsTTSEnabled(true);
   }, [
     wakeWordFallbackEnabled,
-    isSpeaking,
-    stopSpeaking,
     startRecording,
     clearApprovedAudioSaveFlow,
+    releaseApprovedAudioSaveFlow,
+    startRealtimeVoiceMode,
   ]);
 
   useApprovedVoiceGate({
@@ -338,7 +443,7 @@ export function ChatInput({
   const scale = useSharedValue(1);
 
   useEffect(() => {
-    if (isRecording) {
+    if (isRecording || isRealtimeVoiceMode || isRealtimeConnecting) {
       scale.value = withRepeat(
         withSequence(
           withTiming(1.05, { duration: 500 }),
@@ -350,7 +455,7 @@ export function ChatInput({
     } else {
       scale.value = withTiming(1, { duration: 200 });
     }
-  }, [isRecording]);
+  }, [isRecording, isRealtimeConnecting, isRealtimeVoiceMode]);
 
   const animatedStyle = useAnimatedStyle(() => ({
     transform: [{ scale: scale.value }],
@@ -375,7 +480,13 @@ export function ChatInput({
   // --- Send button (right) ---
   const handleSend = async () => {
     const messageText = text.trim();
-    if (!messageText || disabled || isPreparingAttachment || attachmentError) {
+    if (
+      !messageText ||
+      disabled ||
+      isVoiceMode ||
+      isPreparingAttachment ||
+      attachmentError
+    ) {
       return;
     }
 
@@ -507,11 +618,17 @@ export function ChatInput({
       return;
     }
 
-    if (isSpeaking) {
-      stopSpeaking();
+    releaseApprovedAudioSaveFlow("processing_replaced");
+    const realtimeStarted = await startRealtimeVoiceMode("manual");
+    if (realtimeStarted) {
+      if (Platform.OS !== "web") {
+        void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy).catch(() => {
+          // Realtime voice has already started; haptics must stay off the path.
+        });
+      }
+      return;
     }
 
-    clearApprovedAudioSaveFlow();
     voiceInputCanSubmitRef.current = true;
     hasStartedRecording.current = false;
     setIsVoiceMode(true);
@@ -535,7 +652,23 @@ export function ChatInput({
     await stopRecording();
   };
 
+  const handleStopRealtimeVoiceInput = async () => {
+    if (Platform.OS !== "web") {
+      await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    }
+    realtimeVoiceModeRef.current = false;
+    await stopRealtimeConversation();
+    setIsVoiceMode(false);
+    voiceInputCanSubmitRef.current = false;
+    releaseApprovedAudioSaveFlow("processing_complete");
+  };
+
   const handleTextInputFocus = () => {
+    if (isRealtimeVoiceMode) {
+      void handleStopRealtimeVoiceInput();
+      return;
+    }
+
     if (isRecording) {
       cancelRecording();
       setIsVoiceMode(false);
@@ -548,6 +681,7 @@ export function ChatInput({
     setIsAttachmentMenuVisible(false);
     if (
       disabled ||
+      isVoiceMode ||
       isRecording ||
       isProcessing ||
       isPickingAttachment ||
@@ -643,6 +777,7 @@ export function ChatInput({
 
   const canPickAttachment =
     !disabled &&
+    !isVoiceMode &&
     !isRecording &&
     !isProcessing &&
     !isPickingAttachment &&
@@ -654,6 +789,7 @@ export function ChatInput({
   const canSend =
     text.trim().length > 0 &&
     !disabled &&
+    !isVoiceMode &&
     !isPreparingAttachment &&
     !attachmentError &&
     selectedImageAttachmentCanSend;
@@ -894,7 +1030,13 @@ export function ChatInput({
             placeholderTextColor={placeholderColor}
             multiline
             maxLength={4000}
-            editable={!disabled && !isRecording && !isProcessing}
+            editable={
+              !disabled &&
+              !isRecording &&
+              !isProcessing &&
+              !isRealtimeVoiceMode &&
+              !isRealtimeConnecting
+            }
             onSubmitEditing={handleSend}
             blurOnSubmit={false}
           />
@@ -912,7 +1054,13 @@ export function ChatInput({
                       : "transparent",
                 },
               ]}
-              onPress={isVoiceMode ? handleStopVoiceInput : handleSend}
+              onPress={
+                isRealtimeVoiceMode || isRealtimeConnecting
+                  ? handleStopRealtimeVoiceInput
+                  : isVoiceMode
+                    ? handleStopVoiceInput
+                    : handleSend
+              }
               onLongPress={handleLongPressStart}
               delayLongPress={3000}
               disabled={false}
@@ -920,7 +1068,7 @@ export function ChatInput({
                 isVoiceMode ? "음성 입력 중지" : "메시지 보내기"
               }
             >
-              {isProcessing || isPreparingAttachment ? (
+              {isProcessing || isPreparingAttachment || isRealtimeConnecting ? (
                 <ActivityIndicator size="small" color="#fff" />
               ) : (
                 <IconSymbol

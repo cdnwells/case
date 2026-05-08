@@ -220,11 +220,18 @@ expectIncludes(
   "releaseCapturedAudio: result.releaseCapturedAudio",
   "speech-processing handoff keeps audio release control attached to the approved event",
 );
-expectBefore(
-  approvedVoiceHandlerSource,
-  "await startRecording({",
+const approvedVoiceFallbackStartIndex = approvedVoiceHandlerSource.indexOf(
+  "const started = await startRecording({",
+);
+const approvedVoiceFallbackHapticIndex = approvedVoiceHandlerSource.indexOf(
   "void Haptics.impactAsync",
-  "approved voice processing starts before nonessential haptics",
+  approvedVoiceFallbackStartIndex,
+);
+expectEqual(
+  approvedVoiceFallbackStartIndex >= 0 &&
+    approvedVoiceFallbackHapticIndex > approvedVoiceFallbackStartIndex,
+  true,
+  "approved voice fallback processing starts before nonessential haptics",
 );
 expectIncludes(
   chatInputSource,

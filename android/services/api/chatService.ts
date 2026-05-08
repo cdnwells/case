@@ -11,6 +11,8 @@ import {
   CASE_HUB_AUTH_ENABLED,
   CASE_HUB_BOOTSTRAP_TOKEN,
   IChatService,
+  type CreateRealtimeCallRequest,
+  type CreateRealtimeCallResponse,
   type OpenAITtsVoice,
   type SynthesizeSpeechRequest,
   type SynthesizeSpeechResponse,
@@ -274,6 +276,56 @@ export class ChatService implements IChatService {
       uri: file.uri,
       voice,
       contentType: response.headers.get("content-type") || "audio/mpeg",
+    };
+  }
+
+  async createRealtimeCall(
+    request: CreateRealtimeCallRequest,
+  ): Promise<CreateRealtimeCallResponse> {
+    const response = await this.fetchWithAuth("/realtime/calls", {
+      method: "POST",
+      headers: {
+        Accept: "application/sdp",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        sdp: request.sdp,
+        ...(request.conversationId
+          ? { conversationId: request.conversationId }
+          : {}),
+        ...(request.activationSource
+          ? { activationSource: request.activationSource }
+          : {}),
+        ...(request.safetyIdentifier
+          ? { safetyIdentifier: request.safetyIdentifier }
+          : {}),
+      }),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text().catch(() => "");
+      throw createChatApiError({
+        body: parseChatApiErrorBody(errorText),
+        status: response.status,
+        statusText: response.statusText,
+      });
+    }
+
+    const sdp = await response.text();
+    if (!sdp.trim()) {
+      throw new Error("Realtime session returned empty SDP");
+    }
+
+    const voiceHeader = response.headers.get("x-openai-realtime-voice");
+    const voice: OpenAITtsVoice = voiceHeader === "cedar" ? "cedar" : "marin";
+
+    return {
+      sdp,
+      model: response.headers.get("x-openai-realtime-model") || "",
+      voice,
+      reasoningEffort:
+        response.headers.get("x-openai-realtime-reasoning-effort") || "",
+      contentType: response.headers.get("content-type") || "application/sdp",
     };
   }
 }

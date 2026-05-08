@@ -159,6 +159,7 @@ module.exports = ({ config }) => {
         config.plugins,
         !isProductionVariant,
       ),
+      "@config-plugins/react-native-webrtc",
       "expo-audio",
       createPhoneOnlyAndroidManifestPlugin(scheme),
     ],

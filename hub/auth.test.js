@@ -85,6 +85,13 @@ test('sensitive hub routes require a Case Hub token while public routes stay ope
   })
   assert.equal(missingSpeechTokenResponse.statusCode, 401)
 
+  const missingRealtimeTokenResponse = await fastify.inject({
+    method: 'POST',
+    url: '/realtime/calls',
+    payload: { sdp: 'v=0\r\n' },
+  })
+  assert.equal(missingRealtimeTokenResponse.statusCode, 401)
+
   const headerTokenResponse = await fastify.inject({
     method: 'GET',
     url: '/context',

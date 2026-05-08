@@ -21,6 +21,26 @@ export interface SynthesizeSpeechResponse {
   contentType: string;
 }
 
+export type OpenAIRealtimeActivationSource =
+  | "approved_voice"
+  | "wake_word"
+  | "manual";
+
+export interface CreateRealtimeCallRequest {
+  sdp: string;
+  conversationId?: string;
+  activationSource?: OpenAIRealtimeActivationSource;
+  safetyIdentifier?: string;
+}
+
+export interface CreateRealtimeCallResponse {
+  sdp: string;
+  model: string;
+  voice: OpenAITtsVoice;
+  reasoningEffort: string;
+  contentType: string;
+}
+
 export interface IChatService {
   refreshLocalToken?(): Promise<boolean>;
   sendMessage(request: SendMessageRequest): Promise<SendMessageResponse>;
@@ -30,6 +50,9 @@ export interface IChatService {
   synthesizeSpeech?(
     request: SynthesizeSpeechRequest,
   ): Promise<SynthesizeSpeechResponse>;
+  createRealtimeCall?(
+    request: CreateRealtimeCallRequest,
+  ): Promise<CreateRealtimeCallResponse>;
 }
 
 const DEFAULT_API_BASE_URL = "https://cdnwell.store";

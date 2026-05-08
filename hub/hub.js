@@ -45,6 +45,13 @@ const config = {
   openaiTtsVoice: process.env.OPENAI_TTS_VOICE || 'marin',
   openaiTtsInstructions: process.env.OPENAI_TTS_INSTRUCTIONS || 'Speak in a natural, clear Korean assistant voice with a calm Seoul accent. Keep pronunciation crisp, pacing steady, and tone warm without exaggeration.',
   openaiTtsTimeout: parseInt(process.env.OPENAI_TTS_TIMEOUT || process.env.OPENAI_TIMEOUT || '120', 10),
+  openaiRealtimeModel: process.env.OPENAI_REALTIME_MODEL || 'gpt-realtime-2',
+  openaiRealtimeVoice: process.env.OPENAI_REALTIME_VOICE || process.env.OPENAI_TTS_VOICE || 'marin',
+  openaiRealtimeInstructions: process.env.OPENAI_REALTIME_INSTRUCTIONS || '',
+  openaiRealtimeReasoningEffort: process.env.OPENAI_REALTIME_REASONING_EFFORT || 'low',
+  openaiRealtimeTranscriptionModel: process.env.OPENAI_REALTIME_TRANSCRIPTION_MODEL || 'gpt-realtime-whisper',
+  openaiRealtimeTranscriptionLanguage: process.env.OPENAI_REALTIME_TRANSCRIPTION_LANGUAGE || 'ko',
+  openaiRealtimeTimeout: parseInt(process.env.OPENAI_REALTIME_TIMEOUT || process.env.OPENAI_TIMEOUT || '120', 10),
   ollamaBaseUrl: process.env.OLLAMA_BASE_URL || 'http://localhost:11434',
   ollamaModel: process.env.OLLAMA_MODEL || 'gpt-oss-20b',
   ollamaTimeout: parseInt(process.env.OLLAMA_TIMEOUT || '120', 10),
@@ -139,6 +146,7 @@ const CASE_HUB_PROTECTED_PATH_PREFIXES = [
   '/context',
   '/drive',
   '/speech',
+  '/realtime',
   '/command',
   '/commands',
 ]
@@ -215,6 +223,10 @@ const OPENAI_TTS_ALLOWED_VOICES = new Set(['marin', 'cedar'])
 const OPENAI_TTS_RESPONSE_FORMAT = 'mp3'
 const OPENAI_TTS_CONTENT_TYPE = 'audio/mpeg'
 const OPENAI_TTS_MAX_INPUT_CHARS = 8000
+const OPENAI_REALTIME_ALLOWED_VOICES = OPENAI_TTS_ALLOWED_VOICES
+const OPENAI_REALTIME_ALLOWED_REASONING_EFFORTS = new Set(['low', 'medium', 'high', 'xhigh'])
+const OPENAI_REALTIME_SDP_MAX_CHARS = 256 * 1024
+const OPENAI_REALTIME_CONTENT_TYPE = 'application/sdp'
 const PNG_SIGNATURE = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]
 const PNG_IHDR_LENGTH = 13
 const PNG_CHUNK_HEADER_BYTES = 8
@@ -749,6 +761,14 @@ class SpeechDependencyError extends Error {
   }
 }
 
+class RealtimeDependencyError extends Error {
+  constructor(message, cause) {
+    super(message)
+    this.name = 'RealtimeDependencyError'
+    this.cause = cause
+  }
+}
+
 class ProviderFileValidationError extends Error {
   constructor(message) {
     super(message)
@@ -897,6 +917,25 @@ function buildSpeechErrorResponse(err) {
   }
 }
 
+function realtimeErrorMessage(err) {
+  if (err instanceof Error && err.message) {
+    return err.message
+  }
+
+  if (typeof err === 'string' && err.trim()) {
+    return err.trim()
+  }
+
+  return 'Realtime session creation failed'
+}
+
+function buildRealtimeErrorResponse(err) {
+  return {
+    error: 'Realtime Error',
+    message: realtimeErrorMessage(err),
+  }
+}
+
 function logMemoryDependencyFailure(logger, err, { provider, conversationId } = {}) {
   logger?.error?.({
     contextWorkerUrl: config.contextWorkerUrl,
@@ -1016,6 +1055,22 @@ function normalizeOpenAiTtsVoice(value) {
   return OPENAI_TTS_ALLOWED_VOICES.has(voice) ? voice : null
 }
 
+function normalizeOpenAiRealtimeVoice(value) {
+  const voice = typeof value === 'string' && value.trim()
+    ? value.trim().toLowerCase()
+    : String(config.openaiRealtimeVoice || '').trim().toLowerCase()
+
+  return OPENAI_REALTIME_ALLOWED_VOICES.has(voice) ? voice : null
+}
+
+function normalizeOpenAiRealtimeReasoningEffort(value) {
+  const effort = typeof value === 'string' && value.trim()
+    ? value.trim().toLowerCase()
+    : String(config.openaiRealtimeReasoningEffort || '').trim().toLowerCase()
+
+  return OPENAI_REALTIME_ALLOWED_REASONING_EFFORTS.has(effort) ? effort : 'low'
+}
+
 function validateSpeechBody(body) {
   if (!isPlainObject(body)) {
     return 'speech request body must be an object'
@@ -1047,6 +1102,53 @@ function normalizeSpeechRequestBody(body) {
     instructions: typeof body.instructions === 'string' && body.instructions.trim()
       ? body.instructions.trim()
       : String(config.openaiTtsInstructions || '').trim(),
+  }
+}
+
+function validateRealtimeCallBody(body) {
+  if (!isPlainObject(body)) {
+    return 'realtime request body must be an object'
+  }
+
+  if (!isNonEmptyString(body.sdp)) {
+    return 'sdp must be a non-empty string'
+  }
+
+  if (body.sdp.trim().length > OPENAI_REALTIME_SDP_MAX_CHARS) {
+    return `sdp must be ${OPENAI_REALTIME_SDP_MAX_CHARS} characters or fewer`
+  }
+
+  if (!body.sdp.trimStart().startsWith('v=0')) {
+    return 'sdp must be a valid WebRTC offer'
+  }
+
+  if (Object.hasOwn(body, 'conversationId') && typeof body.conversationId !== 'string') {
+    return 'conversationId must be a string'
+  }
+
+  if (Object.hasOwn(body, 'activationSource') && typeof body.activationSource !== 'string') {
+    return 'activationSource must be a string'
+  }
+
+  if (Object.hasOwn(body, 'safetyIdentifier') && typeof body.safetyIdentifier !== 'string') {
+    return 'safetyIdentifier must be a string'
+  }
+
+  return null
+}
+
+function normalizeRealtimeCallRequestBody(body) {
+  return {
+    sdp: body.sdp.trim(),
+    conversationId: typeof body.conversationId === 'string' && body.conversationId.trim()
+      ? body.conversationId.trim()
+      : null,
+    activationSource: typeof body.activationSource === 'string' && body.activationSource.trim()
+      ? body.activationSource.trim().slice(0, 80)
+      : 'unknown',
+    safetyIdentifier: typeof body.safetyIdentifier === 'string' && body.safetyIdentifier.trim()
+      ? body.safetyIdentifier.trim()
+      : '',
   }
 }
 
@@ -3374,6 +3476,151 @@ async function synthesizeOpenAiSpeech({ input, voice, instructions }) {
   }
 }
 
+async function buildRealtimeInstructions({ conversationId, logger } = {}) {
+  const configuredInstructions = String(config.openaiRealtimeInstructions || '').trim()
+  if (configuredInstructions) {
+    return configuredInstructions
+  }
+
+  const persona = await readTextFile('hub/workers/shared/persona.md', 'You are Case, a helpful assistant.')
+  let memoryBlock = ''
+  try {
+    const chatContext = await loadChatContext({
+      conversationId,
+      query: '',
+      logger,
+    })
+    memoryBlock = validateLoadedChatContextForInjection(chatContext)
+  } catch (err) {
+    logger?.warn?.({
+      conversationId,
+      error: memoryErrorMessage(err),
+    }, 'Realtime memory context unavailable')
+  }
+
+  return [
+    persona,
+    'Realtime voice mode instructions:',
+    '- Respond naturally in Korean unless the user clearly asks for another language.',
+    '- Speak concise, interruptible answers that fit a live conversation.',
+    '- Do not emit JSON, markdown command blocks, or implementation logs in spoken replies.',
+    '- If the user asks for device actions or code execution, say that the text chat command path is required.',
+    memoryBlock ? `Current saved memory context:\n${memoryBlock}` : '',
+  ].filter(Boolean).join('\n\n')
+}
+
+async function buildOpenAiRealtimeSessionConfig({ conversationId, logger } = {}) {
+  const voice = normalizeOpenAiRealtimeVoice(config.openaiRealtimeVoice) || 'marin'
+  const reasoningEffort = normalizeOpenAiRealtimeReasoningEffort(config.openaiRealtimeReasoningEffort)
+
+  return {
+    type: 'realtime',
+    model: String(config.openaiRealtimeModel || 'gpt-realtime-2').trim() || 'gpt-realtime-2',
+    instructions: await buildRealtimeInstructions({ conversationId, logger }),
+    output_modalities: ['audio'],
+    reasoning: {
+      effort: reasoningEffort,
+    },
+    audio: {
+      input: {
+        transcription: {
+          model: String(config.openaiRealtimeTranscriptionModel || 'gpt-realtime-whisper').trim() || 'gpt-realtime-whisper',
+          language: String(config.openaiRealtimeTranscriptionLanguage || 'ko').trim() || 'ko',
+        },
+        turn_detection: {
+          type: 'semantic_vad',
+        },
+      },
+      output: {
+        voice,
+      },
+    },
+  }
+}
+
+function realtimeSafetyIdentifierSource(request, realtimeRequest) {
+  if (realtimeRequest.safetyIdentifier) {
+    return realtimeRequest.safetyIdentifier
+  }
+
+  const userAgent = firstHeaderValue(request.headers['user-agent']) || ''
+  const forwardedFor = firstHeaderValue(request.headers['x-forwarded-for']) || ''
+  return [
+    realtimeRequest.conversationId || '',
+    request.ip || '',
+    forwardedFor,
+    userAgent,
+  ].join('|')
+}
+
+function buildRealtimeSafetyIdentifier(request, realtimeRequest) {
+  const source = realtimeSafetyIdentifierSource(request, realtimeRequest)
+  if (!source.trim()) {
+    return ''
+  }
+
+  return `case_${crypto.createHash('sha256').update(source).digest('hex')}`
+}
+
+async function createOpenAiRealtimeCall(realtimeRequest, { request, logger } = {}) {
+  if (!config.openaiApiKey) {
+    throw new RealtimeDependencyError('OPENAI_API_KEY is required for OpenAI Realtime sessions')
+  }
+
+  if (typeof fetch !== 'function') {
+    throw new RealtimeDependencyError('OpenAI Realtime session request failed: fetch is not available')
+  }
+
+  const sessionConfig = await buildOpenAiRealtimeSessionConfig({
+    conversationId: realtimeRequest.conversationId,
+    logger,
+  })
+  const formData = new FormData()
+  formData.set('sdp', realtimeRequest.sdp)
+  formData.set('session', JSON.stringify(sessionConfig))
+
+  const headers = {
+    authorization: `Bearer ${config.openaiApiKey}`,
+  }
+  const safetyIdentifier = request
+    ? buildRealtimeSafetyIdentifier(request, realtimeRequest)
+    : ''
+  if (safetyIdentifier) {
+    headers['OpenAI-Safety-Identifier'] = safetyIdentifier
+  }
+
+  let response
+  try {
+    response = await fetch(`${config.openaiBaseUrl.replace(/\/$/, '')}/realtime/calls`, {
+      method: 'POST',
+      headers,
+      body: formData,
+      signal: createTimeoutSignal(config.openaiRealtimeTimeout),
+    })
+  } catch (err) {
+    throw new RealtimeDependencyError(`OpenAI Realtime session request failed: ${err instanceof Error ? err.message : String(err)}`, err)
+  }
+
+  const answerSdp = await response.text()
+  if (!response.ok) {
+    const detail = extractContextWorkerErrorMessage(answerSdp)
+    throw new RealtimeDependencyError(appendContextWorkerErrorMessage(
+      `OpenAI Realtime session returned HTTP ${response.status}`,
+      detail,
+    ))
+  }
+
+  if (!answerSdp.trim()) {
+    throw new RealtimeDependencyError('OpenAI Realtime session returned empty SDP')
+  }
+
+  return {
+    answerSdp,
+    sessionConfig,
+    contentType: response.headers.get('content-type') || OPENAI_REALTIME_CONTENT_TYPE,
+  }
+}
+
 async function runOllamaChat({ content, context }) {
   const systemPrompt = await buildSystemPrompt('ollama')
   const messages = buildOllamaMessages({
@@ -3718,6 +3965,38 @@ fastify.get('/command/result/*', async (request, reply) => {
   return buildCommandResultResponse(request.params['*'] || '', null)
 })
 
+fastify.post('/realtime/calls', async (request, reply) => {
+  const validationError = validateRealtimeCallBody(request.body)
+  if (validationError) {
+    reply.code(400)
+    return buildValidationErrorResponse(validationError)
+  }
+
+  const realtimeRequest = normalizeRealtimeCallRequestBody(request.body)
+
+  try {
+    const realtimeCall = await createOpenAiRealtimeCall(realtimeRequest, {
+      request,
+      logger: request.log,
+    })
+    reply.type(realtimeCall.contentType)
+    reply.header('Cache-Control', 'no-store')
+    reply.header('X-OpenAI-Realtime-Model', realtimeCall.sessionConfig.model)
+    reply.header('X-OpenAI-Realtime-Voice', realtimeCall.sessionConfig.audio.output.voice)
+    reply.header('X-OpenAI-Realtime-Reasoning-Effort', realtimeCall.sessionConfig.reasoning.effort)
+    return reply.send(realtimeCall.answerSdp)
+  } catch (err) {
+    const realtimeError = buildRealtimeErrorResponse(err)
+    request.log.error({
+      model: config.openaiRealtimeModel,
+      activationSource: realtimeRequest.activationSource,
+      error: realtimeError.message,
+    }, 'OpenAI Realtime session failed')
+    reply.code(502)
+    return realtimeError
+  }
+})
+
 fastify.post('/speech', async (request, reply) => {
   const validationError = validateSpeechBody(request.body)
   if (validationError) {
@@ -3860,6 +4139,7 @@ export {
   buildOllamaMessages,
   buildMemoryErrorResponse,
   buildProviderErrorResponse,
+  buildRealtimeErrorResponse,
   buildSpeechErrorResponse,
   buildValidationErrorResponse,
   CHAT_IMAGE_ATTACHMENT_MAX_SIZE_BYTES,
@@ -3877,7 +4157,9 @@ export {
   logMemoryDependencyFailure,
   memoryStore,
   MemoryDependencyError,
+  buildOpenAiRealtimeSessionConfig,
   normalizeSpeechRequestBody,
+  normalizeRealtimeCallRequestBody,
   normalizeDriveFileListPayload,
   normalizeDriveFileMetadata,
   normalizeMemoryRecord,
@@ -3887,8 +4169,11 @@ export {
   prepareProviderMemoriesForPersistence,
   persistProviderMemories,
   ProviderFileValidationError,
+  RealtimeDependencyError,
   SpeechDependencyError,
+  createOpenAiRealtimeCall,
   synthesizeOpenAiSpeech,
+  validateRealtimeCallBody,
   parseContextResponsePayload,
   selectMemoriesForContext,
   start,
