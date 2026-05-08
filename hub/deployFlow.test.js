@@ -60,3 +60,11 @@ test('deploy dry-run passes --env flag as the hub app environment', async () => 
   assert.doesNotMatch(result.stdout, /APP_ENV=production/)
   assert.equal(result.stderr, '')
 })
+
+test('deploy runner rejects removed --hub-only flag', async () => {
+  const result = await runDeployDryRun({}, ['--hub-only', '--dry-run'])
+
+  assert.equal(result.exitCode, 2, result.stderr || result.stdout)
+  assert.equal(result.signal, null)
+  assert.match(result.stderr, /Unknown option: --hub-only/)
+})

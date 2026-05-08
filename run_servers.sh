@@ -134,11 +134,6 @@ while [[ $# -gt 0 ]]; do
       START_HUB=0
       shift
       ;;
-    --hub-only)
-      START_HUB=1
-      WORKERS_ARG="none"
-      shift
-      ;;
     --host)
       require_value "$1" "${2:-}"
       HOST="$2"
