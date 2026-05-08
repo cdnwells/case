@@ -99,6 +99,7 @@ Cloudflare 앞단에서는 Hub 자체 인증과 별도로 `/.git*`, `/wp-*`, `/x
 
 ```bash
 ./run_servers.sh --only hub
+./run_servers.sh --env development
 CHAT_PROVIDER=gpt OPENAI_API_KEY=... ./run_servers.sh
 CHAT_PROVIDER=ollama OLLAMA_MODEL=... ./run_servers.sh
 ./run_servers.sh --dry-run

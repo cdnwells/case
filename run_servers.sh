@@ -7,6 +7,7 @@ EXECUTOR="codex"
 WORKERS_ARG="none"
 ONLY_ARG=""
 EXCLUDE_ARG=""
+APP_ENV_ARG=""
 START_HUB=1
 DRY_RUN=0
 
@@ -50,6 +51,7 @@ Options:
   --workers LIST              Legacy option; values other than none are rejected in v1
   --only LIST                 Exact services to start. In v1, only hub is accepted
   --exclude LIST              Services to skip from the selected set
+  --env ENV                   App environment for the hub (default: APP_ENV or development)
   --no-hub                    Invalid for v1; the runner starts the hub only
   --hub-only                  Start the hub only
   --host HOST                 Worker bind host (default: 0.0.0.0)
@@ -68,6 +70,7 @@ Options:
 
 Examples:
   ./run_servers.sh
+  ./run_servers.sh --env development
   ./run_servers.sh --hub-only
   ./run_servers.sh --only hub
 USAGE
@@ -118,6 +121,15 @@ while [[ $# -gt 0 ]]; do
       ;;
     --exclude=*)
       EXCLUDE_ARG="${1#*=}"
+      shift
+      ;;
+    --env)
+      require_value "$1" "${2:-}"
+      APP_ENV_ARG="$2"
+      shift 2
+      ;;
+    --env=*)
+      APP_ENV_ARG="${1#*=}"
       shift
       ;;
     --no-hub)
@@ -247,6 +259,10 @@ done
 if [[ "$EXECUTOR" != "codex" && "$EXECUTOR" != "claude" ]]; then
   echo "--executor must be codex or claude" >&2
   exit 2
+fi
+
+if [[ -n "$APP_ENV_ARG" ]]; then
+  APP_ENV="$APP_ENV_ARG"
 fi
 
 split_csv() {

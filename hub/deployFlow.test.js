@@ -9,12 +9,13 @@ const __dirname = path.dirname(__filename)
 const repoRoot = path.resolve(__dirname, '..')
 const runServersPath = path.join(repoRoot, 'run_servers.sh')
 
-function runDeployDryRun(envOverrides = {}) {
+function runDeployDryRun(envOverrides = {}, args = ['--hub-only', '--dry-run']) {
   return new Promise(resolve => {
-    execFile(runServersPath, ['--hub-only', '--dry-run'], {
+    execFile(runServersPath, args, {
       cwd: repoRoot,
       env: {
         ...process.env,
+        APP_ENV: '',
         CHAT_PROVIDER: 'codex',
         LOG_LEVEL: 'silent',
         MEMORY_LOAD_TIMEOUT: '1',
@@ -43,6 +44,19 @@ test('deploy dry-run starts only the merged hub without context worker preflight
   assert.equal(result.signal, null)
   assert.match(result.stdout, /\[dry-run\] \(hub\) cd .*\/hub &&/)
   assert.match(result.stdout, /CHAT_PROVIDER=codex/)
+  assert.match(result.stdout, /APP_ENV=development/)
   assert.doesNotMatch(result.stdout, /CONTEXT_WORKER_URL=/)
+  assert.equal(result.stderr, '')
+})
+
+test('deploy dry-run passes --env flag as the hub app environment', async () => {
+  const result = await runDeployDryRun({
+    APP_ENV: 'production',
+  }, ['--hub-only', '--env', 'development', '--dry-run'])
+
+  assert.equal(result.exitCode, 0, result.stderr || result.stdout)
+  assert.equal(result.signal, null)
+  assert.match(result.stdout, /APP_ENV=development/)
+  assert.doesNotMatch(result.stdout, /APP_ENV=production/)
   assert.equal(result.stderr, '')
 })
