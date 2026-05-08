@@ -613,8 +613,18 @@ export function ChatInput({
     clearApprovedAudioSaveFlow();
   }, [approvedAudioSaveCandidate, clearApprovedAudioSaveFlow]);
 
-  const handleLongPressStart = async () => {
-    if (disabled || isVoiceMode || isRecording || isProcessing) {
+  const handleManualVoiceStart = async () => {
+    if (
+      disabled ||
+      isVoiceMode ||
+      isRecording ||
+      isProcessing ||
+      isPickingAttachment ||
+      isPreparingAttachment ||
+      attachmentError ||
+      selectedImageAttachment ||
+      selectedDriveFileAttachment
+    ) {
       return;
     }
 
@@ -661,6 +671,27 @@ export function ChatInput({
     setIsVoiceMode(false);
     voiceInputCanSubmitRef.current = false;
     releaseApprovedAudioSaveFlow("processing_complete");
+  };
+
+  const handlePrimaryActionPress = async () => {
+    if (isRealtimeVoiceMode || isRealtimeConnecting) {
+      await handleStopRealtimeVoiceInput();
+      return;
+    }
+
+    if (isVoiceMode) {
+      await handleStopVoiceInput();
+      return;
+    }
+
+    if (canSend) {
+      await handleSend();
+      return;
+    }
+
+    if (canStartPrimaryRealtimeVoice) {
+      await handleManualVoiceStart();
+    }
   };
 
   const handleTextInputFocus = () => {
@@ -786,13 +817,29 @@ export function ChatInput({
     !selectedImageAttachment ||
     validateSelectedImageAttachmentSize(selectedImageAttachment.sizeBytes)
       .accepted;
+  const trimmedText = text.trim();
+  const hasPendingAttachment = Boolean(
+    selectedImageAttachment || selectedDriveFileAttachment,
+  );
+  const canStartManualVoiceInput =
+    !disabled &&
+    !isVoiceMode &&
+    !isRecording &&
+    !isProcessing &&
+    !isPickingAttachment &&
+    !isPreparingAttachment &&
+    !attachmentError &&
+    !hasPendingAttachment;
+  const canStartPrimaryRealtimeVoice =
+    canStartManualVoiceInput && trimmedText.length === 0;
   const canSend =
-    text.trim().length > 0 &&
+    trimmedText.length > 0 &&
     !disabled &&
     !isVoiceMode &&
     !isPreparingAttachment &&
     !attachmentError &&
     selectedImageAttachmentCanSend;
+  const primaryActionAvailable = canSend || canStartPrimaryRealtimeVoice;
 
   return (
     <View style={[styles.container, { paddingBottom: 8 }]}>
@@ -1049,33 +1096,39 @@ export function ChatInput({
                 {
                   backgroundColor: isVoiceMode
                     ? "gray"
-                    : canSend
+                    : primaryActionAvailable
                       ? caseColor
                       : "transparent",
                 },
               ]}
-              onPress={
-                isRealtimeVoiceMode || isRealtimeConnecting
-                  ? handleStopRealtimeVoiceInput
-                  : isVoiceMode
-                    ? handleStopVoiceInput
-                    : handleSend
-              }
-              onLongPress={handleLongPressStart}
+              onPress={handlePrimaryActionPress}
+              onLongPress={handleManualVoiceStart}
               delayLongPress={3000}
               disabled={false}
               accessibilityLabel={
-                isVoiceMode ? "음성 입력 중지" : "메시지 보내기"
+                isRealtimeVoiceMode || isRealtimeConnecting
+                  ? "실시간 음성 대화 중지"
+                  : isVoiceMode
+                    ? "음성 입력 중지"
+                    : canStartPrimaryRealtimeVoice
+                      ? "실시간 음성 대화 시작"
+                      : "메시지 보내기"
               }
             >
               {isProcessing || isPreparingAttachment || isRealtimeConnecting ? (
                 <ActivityIndicator size="small" color="#fff" />
               ) : (
                 <IconSymbol
-                  name={isVoiceMode ? "mic.fill" : "arrow.up"}
+                  name={
+                    isVoiceMode || (canStartPrimaryRealtimeVoice && !canSend)
+                      ? "mic.fill"
+                      : "arrow.up"
+                  }
                   size={20}
                   color={
-                    isVoiceMode ? "#fff" : canSend ? "#fff" : placeholderColor
+                    isVoiceMode || primaryActionAvailable
+                      ? "#fff"
+                      : placeholderColor
                   }
                 />
               )}

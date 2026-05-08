@@ -56,8 +56,12 @@ const wakeWordBindingSource = chatInputSource.slice(
   chatInputSource.indexOf("// Pulse animation", approvedVoiceHandlerStart),
 );
 const longPressHandlerSource = chatInputSource.slice(
-  chatInputSource.indexOf("const handleLongPressStart"),
+  chatInputSource.indexOf("const handleManualVoiceStart"),
   chatInputSource.indexOf("const handleStopVoiceInput"),
+);
+const primaryActionHandlerSource = chatInputSource.slice(
+  chatInputSource.indexOf("const handlePrimaryActionPress"),
+  chatInputSource.indexOf("const handleTextInputFocus"),
 );
 const voiceInputBindingSource = chatInputSource.slice(
   chatInputSource.indexOf("useVoiceInput({"),
@@ -163,6 +167,42 @@ expectIncludes(
   longPressHandlerSource,
   "approvedVoiceGateRequired: false",
   "manual long-press voice input remains available without approved-voice profile setup",
+);
+expectIncludes(
+  primaryActionHandlerSource,
+  "if (canSend)",
+  "primary action still sends typed messages before starting voice chat",
+);
+expectIncludes(
+  primaryActionHandlerSource,
+  "if (canStartPrimaryRealtimeVoice)",
+  "primary action starts realtime voice when the composer is empty",
+);
+expectIncludes(
+  primaryActionHandlerSource,
+  "await handleManualVoiceStart();",
+  "primary action reuses the realtime-first manual voice path",
+);
+expectBefore(
+  primaryActionHandlerSource,
+  "if (canSend)",
+  "if (canStartPrimaryRealtimeVoice)",
+  "typed messages keep priority over empty-composer realtime voice",
+);
+expectIncludes(
+  chatInputSource,
+  "onPress={handlePrimaryActionPress}",
+  "send button routes normal taps through the realtime-prioritized primary action",
+);
+expectIncludes(
+  chatInputSource,
+  "onLongPress={handleManualVoiceStart}",
+  "long press keeps the same realtime-first manual voice entry point",
+);
+expectIncludes(
+  chatInputSource,
+  'canStartPrimaryRealtimeVoice\n                      ? "실시간 음성 대화 시작"',
+  "empty-composer primary action is announced as realtime voice chat",
 );
 expectIncludes(
   approvedVoiceHandlerSource,

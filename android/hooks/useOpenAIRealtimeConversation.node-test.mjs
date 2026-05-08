@@ -45,6 +45,9 @@ test("Chat input tries Realtime voice before speech-recognition fallback", () =>
   assert.match(chatInputSource, /startRealtimeVoiceMode\(\s*"approved_voice"/);
   assert.match(chatInputSource, /startRealtimeVoiceMode\("wake_word"\)/);
   assert.match(chatInputSource, /startRealtimeVoiceMode\("manual"\)/);
+  assert.match(chatInputSource, /const handlePrimaryActionPress/);
+  assert.match(chatInputSource, /onPress=\{handlePrimaryActionPress\}/);
+  assert.match(chatInputSource, /canStartPrimaryRealtimeVoice/);
   assert.match(chatInputSource, /onUserTranscript: handleRealtimeUserTranscript/);
   assert.match(chatInputSource, /onAssistantTranscript: handleRealtimeAssistantTranscript/);
   assert.match(chatInputSource, /handleStopRealtimeVoiceInput/);
