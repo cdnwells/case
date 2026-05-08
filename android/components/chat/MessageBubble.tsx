@@ -243,6 +243,34 @@ export function MessageBubble({ message }: MessageBubbleProps) {
             })}
           </View>
         )}
+        {message.attachments && message.attachments.length > 0 && (
+          <View style={styles.attachedFileRow}>
+            {message.attachments.map((attachment) => (
+              <View
+                key={attachment.id}
+                accessibilityLabel={`Attached file ${attachment.name}`}
+                style={[
+                  styles.linkBadge,
+                  styles.attachedFileBadge,
+                  isUser
+                    ? styles.userLinkBadge
+                    : {
+                        backgroundColor: assistantLinkBadgeColor,
+                        borderColor: assistantLinkBadgeBorderColor,
+                      },
+                ]}
+              >
+                <IconSymbol name="paperclip" size={13} color={linkBadgeColor} />
+                <ThemedText
+                  numberOfLines={1}
+                  style={[styles.linkBadgeText, { color: linkBadgeColor }]}
+                >
+                  {attachment.name}
+                </ThemedText>
+              </View>
+            ))}
+          </View>
+        )}
         {message.generatedFiles && message.generatedFiles.length > 0 && (
           <View style={styles.generatedFileRow}>
             {message.generatedFiles.map((file) => {
@@ -358,6 +386,12 @@ const styles = StyleSheet.create({
     gap: 6,
     marginTop: 8,
   },
+  attachedFileRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+    marginTop: 8,
+  },
   linkBadge: {
     alignItems: 'center',
     borderRadius: 999,
@@ -391,6 +425,9 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   generatedFileBadge: {
+    borderStyle: 'solid',
+  },
+  attachedFileBadge: {
     borderStyle: 'solid',
   },
   pressedLinkBadge: {

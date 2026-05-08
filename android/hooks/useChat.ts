@@ -2,6 +2,7 @@ import { useState, useCallback, useRef, useEffect } from "react";
 import type { Message, ChatState, SendMessageRequest } from "@/types/chat";
 import { chatService } from "@/services/api";
 import { getSendMessageErrorMessage } from "@/services/api/chatErrors";
+import { createMessageAttachmentBadges } from "@/components/chat/messageAttachmentBadges";
 
 const POLL_INTERVAL_MS = 3000;
 const POLL_MAX_ATTEMPTS = 60;
@@ -156,12 +157,16 @@ export function useChat() {
     ) => {
       if (!content.trim()) return;
 
+      const attachmentBadges = createMessageAttachmentBadges(
+        options.attachments,
+      );
       const userMessage: Message = {
         id: `user_${Date.now()}`,
         content: content.trim(),
         role: "user",
         timestamp: new Date(),
         status: "sending",
+        ...(attachmentBadges.length ? { attachments: attachmentBadges } : {}),
       };
 
       setState((prev) => ({

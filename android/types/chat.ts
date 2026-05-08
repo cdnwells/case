@@ -4,6 +4,7 @@ export interface Message {
   role: 'user' | 'assistant';
   timestamp: Date;
   status: 'sending' | 'sent' | 'error';
+  attachments?: MessageAttachment[];
   generatedFiles?: GeneratedDriveFile[];
   executionStatus?: 'queued' | 'executing' | 'completed' | 'failed';
   errorMessage?: string;
@@ -57,6 +58,13 @@ export interface ChatDriveFileAttachmentRequest {
 export type ChatAttachmentRequest =
   | ChatImageAttachmentRequest
   | ChatDriveFileAttachmentRequest;
+
+export interface MessageAttachment {
+  id: string;
+  type: ChatAttachmentRequest['type'];
+  name: string;
+  mimeType?: string;
+}
 
 export interface SendMessageRequest {
   content: string;
