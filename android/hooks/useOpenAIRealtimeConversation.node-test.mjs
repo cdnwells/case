@@ -16,6 +16,27 @@ const chatServiceSource = readFileSync(
   resolve(dirname(fileURLToPath(import.meta.url)), "../services/api/chatService.ts"),
   "utf8",
 );
+const realtimeAudioSessionSource = readFileSync(
+  resolve(
+    dirname(fileURLToPath(import.meta.url)),
+    "../services/voice/realtimeAudioSession.ts",
+  ),
+  "utf8",
+);
+const realtimeAudioSessionNativeSource = readFileSync(
+  resolve(
+    dirname(fileURLToPath(import.meta.url)),
+    "../modules/battery-optimization/android/src/main/java/expo/modules/caseaudio/CaseRealtimeAudioSessionModule.kt",
+  ),
+  "utf8",
+);
+const expoModuleConfigSource = readFileSync(
+  resolve(
+    dirname(fileURLToPath(import.meta.url)),
+    "../modules/battery-optimization/expo-module.config.json",
+  ),
+  "utf8",
+);
 const apiTypesSource = readFileSync(
   resolve(dirname(fileURLToPath(import.meta.url)), "../services/api/types.ts"),
   "utf8",
@@ -27,6 +48,11 @@ test("OpenAI Realtime hook creates a WebRTC offer through the Hub", () => {
   assert.match(hookSource, /mediaDevices\.getUserMedia/);
   assert.match(hookSource, /createRealtimeCall\(\{/);
   assert.match(hookSource, /setRemoteDescription/);
+  assert.match(hookSource, /startRealtimeAudioSession\(\{/);
+  assert.match(hookSource, /stopRealtimeAudioSession\(\)/);
+  assert.match(hookSource, /enableRemoteAudioPlayback\(remoteStream, event\.track/);
+  assert.match(hookSource, /audioTrack\.enabled = true/);
+  assert.match(hookSource, /audioTrack\._setVolume\?\./);
   assert.match(hookSource, /conversation\.item\.input_audio_transcription\.completed/);
   assert.match(hookSource, /response\.output_audio_transcript\.done/);
 });
@@ -37,6 +63,24 @@ test("Chat service sends Realtime SDP to the protected Hub endpoint", () => {
   assert.match(apiTypesSource, /CreateRealtimeCallRequest/);
   assert.match(apiTypesSource, /CreateRealtimeCallResponse/);
   assert.match(apiTypesSource, /createRealtimeCall\?/);
+});
+
+test("Realtime voice routes Android WebRTC audio to audible output", () => {
+  assert.match(
+    realtimeAudioSessionSource,
+    /requireOptionalNativeModule<NativeRealtimeAudioSessionModule>\(\s*"CaseRealtimeAudioSession"/,
+  );
+  assert.match(realtimeAudioSessionSource, /Platform\.OS !== "android"/);
+  assert.match(realtimeAudioSessionSource, /start\(speakerphone\)/);
+  assert.match(realtimeAudioSessionNativeSource, /Name\("CaseRealtimeAudioSession"\)/);
+  assert.match(realtimeAudioSessionNativeSource, /MODE_IN_COMMUNICATION/);
+  assert.match(realtimeAudioSessionNativeSource, /USAGE_VOICE_COMMUNICATION/);
+  assert.match(realtimeAudioSessionNativeSource, /setCommunicationDevice/);
+  assert.match(realtimeAudioSessionNativeSource, /isSpeakerphoneOn/);
+  assert.match(
+    expoModuleConfigSource,
+    /expo\.modules\.caseaudio\.CaseRealtimeAudioSessionModule/,
+  );
 });
 
 test("Chat input tries Realtime voice before speech-recognition fallback", () => {

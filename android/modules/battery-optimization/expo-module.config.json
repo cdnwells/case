@@ -3,7 +3,8 @@
   "android": {
     "modules": [
       "expo.modules.batteryoptimization.BatteryOptimizationModule",
-      "expo.modules.caseaudio.CaseContinuousMicrophoneCaptureModule"
+      "expo.modules.caseaudio.CaseContinuousMicrophoneCaptureModule",
+      "expo.modules.caseaudio.CaseRealtimeAudioSessionModule"
     ]
   }
 }

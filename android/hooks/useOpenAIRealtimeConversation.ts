@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Platform } from "react-native";
 import { chatService } from "@/services/api";
+import {
+  startRealtimeAudioSession,
+  stopRealtimeAudioSession,
+} from "@/services/voice/realtimeAudioSession";
 import type {
   CreateRealtimeCallRequest,
   CreateRealtimeCallResponse,
@@ -29,10 +33,14 @@ type WebRTCLikeModule = {
 };
 
 type TrackLike = {
+  enabled?: boolean;
+  kind?: string;
   stop?: () => void;
+  _setVolume?: (volume: number) => void;
 };
 
 type MediaStreamLike = {
+  getAudioTracks?: () => TrackLike[];
   getTracks: () => TrackLike[];
 };
 
@@ -60,7 +68,7 @@ type PeerConnectionLike = {
   addEventListener?: (eventName: string, listener: () => void) => void;
   removeEventListener?: (eventName: string, listener: () => void) => void;
   onicegatheringstatechange?: (() => void) | null;
-  ontrack?: ((event: { streams?: MediaStreamLike[] }) => void) | null;
+  ontrack?: ((event: { streams?: MediaStreamLike[]; track?: TrackLike }) => void) | null;
 };
 
 interface StartRealtimeConversationOptions {
@@ -90,6 +98,7 @@ interface UseOpenAIRealtimeConversationReturn {
 }
 
 const ICE_GATHERING_TIMEOUT_MS = 2500;
+const REMOTE_AUDIO_TRACK_VOLUME = 1;
 const REALTIME_DATA_CHANNEL_LABEL = "oai-events";
 const OPENAI_REALTIME_ENABLED =
   process.env.EXPO_PUBLIC_OPENAI_REALTIME_ENABLED !== "0";
@@ -175,6 +184,24 @@ function waitForIceGatheringComplete(pc: PeerConnectionLike): Promise<void> {
   });
 }
 
+function enableRemoteAudioPlayback(stream?: MediaStreamLike | null, track?: TrackLike | null) {
+  const audioTracks = stream?.getAudioTracks?.() || [];
+  const fallbackAudioTracks =
+    audioTracks.length > 0
+      ? audioTracks
+      : stream?.getTracks().filter((streamTrack) => streamTrack.kind === "audio") ||
+        [];
+  const tracks =
+    track?.kind === "audio" && !fallbackAudioTracks.includes(track)
+      ? [track, ...fallbackAudioTracks]
+      : fallbackAudioTracks;
+
+  for (const audioTrack of tracks) {
+    audioTrack.enabled = true;
+    audioTrack._setVolume?.(REMOTE_AUDIO_TRACK_VOLUME);
+  }
+}
+
 export function useOpenAIRealtimeConversation({
   enabled = true,
   createRealtimeCall = chatService.createRealtimeCall?.bind(chatService),
@@ -188,6 +215,7 @@ export function useOpenAIRealtimeConversation({
   const dataChannelRef = useRef<DataChannelLike | null>(null);
   const localStreamRef = useRef<MediaStreamLike | null>(null);
   const remoteStreamRef = useRef<MediaStreamLike | null>(null);
+  const audioSessionStartedRef = useRef(false);
   const startRequestIdRef = useRef(0);
   const assistantAudioTranscriptRef = useRef("");
   const assistantTextTranscriptRef = useRef("");
@@ -201,6 +229,11 @@ export function useOpenAIRealtimeConversation({
   onErrorRef.current = onError;
 
   const cleanupConnection = useCallback((nextState: RealtimeConversationState) => {
+    if (audioSessionStartedRef.current) {
+      stopRealtimeAudioSession();
+      audioSessionStartedRef.current = false;
+    }
+
     dataChannelRef.current?.close?.();
     dataChannelRef.current = null;
 
@@ -346,6 +379,10 @@ export function useOpenAIRealtimeConversation({
       setError(null);
 
       try {
+        audioSessionStartedRef.current = startRealtimeAudioSession({
+          speakerphone: true,
+        });
+
         const localStream = await webRTC.mediaDevices.getUserMedia({
           audio: true,
           video: false,
@@ -380,7 +417,9 @@ export function useOpenAIRealtimeConversation({
         };
 
         pc.ontrack = (event) => {
-          remoteStreamRef.current = event.streams?.[0] || null;
+          const remoteStream = event.streams?.[0] || null;
+          remoteStreamRef.current = remoteStream;
+          enableRemoteAudioPlayback(remoteStream, event.track || null);
         };
 
         for (const track of localStream.getTracks()) {
