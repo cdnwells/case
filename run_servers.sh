@@ -17,6 +17,7 @@ LOG_DIR="${LOG_DIR:-$ROOT_DIR/.logs}"
 LOG_RUN_ID="${LOG_RUN_ID:-}"
 RUN_LOG_DIR=""
 NODE_BIN="${NODE_BIN:-node}"
+HUB_APP_ENV=""
 
 if [[ -z "${PYTHON_BIN:-}" ]]; then
   if [[ -x "$ROOT_DIR/.venv/bin/python" ]]; then
@@ -258,6 +259,23 @@ if [[ -n "$APP_ENV_ARG" ]]; then
   APP_ENV="$APP_ENV_ARG"
 fi
 
+is_development_app_env() {
+  local app_env="${1,,}"
+  app_env="${app_env//[[:space:]]/}"
+  case "$app_env" in
+    development|dev|local)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+hub_development_notice() {
+  printf 'Hub development mode enabled: local/LAN token checks are bypassed.\n'
+}
+
 split_csv() {
   local input="$1"
   local -n output_ref="$2"
@@ -475,6 +493,10 @@ start_process() {
   local log_file="$RUN_LOG_DIR/$name.log"
 
   if [[ "$DRY_RUN" -eq 1 ]]; then
+    if [[ "$name" == "hub" ]] && is_development_app_env "$HUB_APP_ENV"; then
+      printf '[dry-run] '
+      hub_development_notice
+    fi
     printf '[dry-run] (%s) cd %s &&' "$name" "$dir"
     printf ' %q' "$@"
     printf '\n'
@@ -484,6 +506,10 @@ start_process() {
   mkdir -p "$RUN_LOG_DIR"
   (
     cd "$dir"
+    if [[ "$name" == "hub" ]] && is_development_app_env "$HUB_APP_ENV"; then
+      printf '[%s] ' "$(date -Is)"
+      hub_development_notice
+    fi
     printf '[%s] starting %s\n' "$(date -Is)" "$name"
     exec "$@"
   ) >>"$log_file" 2>&1 &
@@ -525,13 +551,14 @@ prepare_log_dir
 
 if [[ "$START_HUB" -eq 1 ]]; then
   SELECTED_CHAT_PROVIDER="$(select_hub_provider)"
+  HUB_APP_ENV="${APP_ENV:-development}"
   if [[ "$DRY_RUN" -ne 1 ]]; then
     echo "Log folder: $RUN_LOG_DIR"
   fi
   start_process "hub" "$ROOT_DIR/hub" env \
     PORT="$HUB_PORT" \
     CHAT_PROVIDER="$SELECTED_CHAT_PROVIDER" \
-    APP_ENV="${APP_ENV:-development}" \
+    APP_ENV="$HUB_APP_ENV" \
     "$NODE_BIN" hub.js
 fi
 
