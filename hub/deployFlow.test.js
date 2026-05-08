@@ -77,10 +77,29 @@ test('deploy dry-run omits development notice for production app environment', a
   assert.equal(result.stderr, '')
 })
 
-test('deploy runner rejects removed --hub-only flag', async () => {
-  const result = await runDeployDryRun({}, ['--hub-only', '--dry-run'])
+test('deploy runner rejects unsupported legacy flags', async () => {
+  const unsupportedFlagCases = [
+    ['--hub-only'],
+    ['--only', 'hub'],
+    ['--workers', 'none'],
+    ['--executor', 'codex'],
+    ['--exclude', 'hub'],
+    ['--no-hub'],
+    ['--host', '0.0.0.0'],
+    ['--gpt-port', '8000'],
+    ['--context-port', '8001'],
+    ['--ollama-port', '8002'],
+    ['--claude-port', '8003'],
+    ['--codex-port', '8004'],
+    ['--ssh-port', '8005'],
+    ['--python-bin', 'python3'],
+  ]
 
-  assert.equal(result.exitCode, 2, result.stderr || result.stdout)
-  assert.equal(result.signal, null)
-  assert.match(result.stderr, /Unknown option: --hub-only/)
+  for (const args of unsupportedFlagCases) {
+    const result = await runDeployDryRun({}, [...args, '--dry-run'])
+
+    assert.equal(result.exitCode, 2, `${args.join(' ')}\n${result.stderr || result.stdout}`)
+    assert.equal(result.signal, null)
+    assert.match(result.stderr, new RegExp(`Unknown option: ${args[0]}`))
+  }
 })

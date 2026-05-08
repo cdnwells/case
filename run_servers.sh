@@ -3,37 +3,16 @@ set -Eeuo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-EXECUTOR="codex"
-WORKERS_ARG="none"
-ONLY_ARG=""
-EXCLUDE_ARG=""
 APP_ENV_ARG=""
-START_HUB=1
 DRY_RUN=0
 
-HOST="${HOST:-0.0.0.0}"
-DEBUG="${DEBUG:-false}"
 LOG_DIR="${LOG_DIR:-$ROOT_DIR/.logs}"
 LOG_RUN_ID="${LOG_RUN_ID:-}"
 RUN_LOG_DIR=""
 NODE_BIN="${NODE_BIN:-node}"
 HUB_APP_ENV=""
 
-if [[ -z "${PYTHON_BIN:-}" ]]; then
-  if [[ -x "$ROOT_DIR/.venv/bin/python" ]]; then
-    PYTHON_BIN="$ROOT_DIR/.venv/bin/python"
-  else
-    PYTHON_BIN="python3"
-  fi
-fi
-
 HUB_PORT="${HUB_PORT:-5000}"
-GPT_PORT="${GPT_PORT:-8000}"
-CONTEXT_PORT="${CONTEXT_PORT:-8001}"
-OLLAMA_PORT="${OLLAMA_PORT:-8002}"
-CLAUDE_PORT="${CLAUDE_PORT:-8003}"
-CODEX_PORT="${CODEX_PORT:-8004}"
-SSH_PORT="${SSH_PORT:-8005}"
 
 usage() {
   cat <<'USAGE'
@@ -48,21 +27,8 @@ Environment:
   LOG_RUN_ID=STRING                       Override the daily folder name under --log-dir
 
 Options:
-  --executor codex|claude     Legacy option; worker executors are not started in v1
-  --workers LIST              Legacy option; values other than none are rejected in v1
-  --only LIST                 Exact services to start. In v1, only hub is accepted
-  --exclude LIST              Services to skip from the selected set
   --env ENV                   App environment for the hub (default: APP_ENV or development)
-  --no-hub                    Invalid for v1; the runner starts the hub only
-  --host HOST                 Worker bind host (default: 0.0.0.0)
   --hub-port PORT             Hub port (default: 5000)
-  --gpt-port PORT             GPT worker port (default: 8000)
-  --context-port PORT         Legacy option retained for compatibility
-  --ollama-port PORT          Ollama worker port (default: 8002)
-  --claude-port PORT          Claude worker port (default: 8003)
-  --codex-port PORT           Codex worker port (default: 8004)
-  --ssh-port PORT             SSH worker port (default: 8005)
-  --python-bin PATH           Python executable (default: .venv/bin/python if present, else python3)
   --node-bin PATH             Node executable (default: node)
   --log-dir DIR               Root directory for daily server logs (default: .logs)
   --dry-run                   Print commands without starting servers
@@ -86,42 +52,6 @@ require_value() {
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --executor)
-      require_value "$1" "${2:-}"
-      EXECUTOR="$2"
-      shift 2
-      ;;
-    --executor=*)
-      EXECUTOR="${1#*=}"
-      shift
-      ;;
-    --workers)
-      require_value "$1" "${2:-}"
-      WORKERS_ARG="$2"
-      shift 2
-      ;;
-    --workers=*)
-      WORKERS_ARG="${1#*=}"
-      shift
-      ;;
-    --only)
-      require_value "$1" "${2:-}"
-      ONLY_ARG="$2"
-      shift 2
-      ;;
-    --only=*)
-      ONLY_ARG="${1#*=}"
-      shift
-      ;;
-    --exclude)
-      require_value "$1" "${2:-}"
-      EXCLUDE_ARG="$2"
-      shift 2
-      ;;
-    --exclude=*)
-      EXCLUDE_ARG="${1#*=}"
-      shift
-      ;;
     --env)
       require_value "$1" "${2:-}"
       APP_ENV_ARG="$2"
@@ -131,19 +61,6 @@ while [[ $# -gt 0 ]]; do
       APP_ENV_ARG="${1#*=}"
       shift
       ;;
-    --no-hub)
-      START_HUB=0
-      shift
-      ;;
-    --host)
-      require_value "$1" "${2:-}"
-      HOST="$2"
-      shift 2
-      ;;
-    --host=*)
-      HOST="${1#*=}"
-      shift
-      ;;
     --hub-port)
       require_value "$1" "${2:-}"
       HUB_PORT="$2"
@@ -151,69 +68,6 @@ while [[ $# -gt 0 ]]; do
       ;;
     --hub-port=*)
       HUB_PORT="${1#*=}"
-      shift
-      ;;
-    --gpt-port)
-      require_value "$1" "${2:-}"
-      GPT_PORT="$2"
-      shift 2
-      ;;
-    --gpt-port=*)
-      GPT_PORT="${1#*=}"
-      shift
-      ;;
-    --context-port)
-      require_value "$1" "${2:-}"
-      CONTEXT_PORT="$2"
-      shift 2
-      ;;
-    --context-port=*)
-      CONTEXT_PORT="${1#*=}"
-      shift
-      ;;
-    --ollama-port)
-      require_value "$1" "${2:-}"
-      OLLAMA_PORT="$2"
-      shift 2
-      ;;
-    --ollama-port=*)
-      OLLAMA_PORT="${1#*=}"
-      shift
-      ;;
-    --claude-port)
-      require_value "$1" "${2:-}"
-      CLAUDE_PORT="$2"
-      shift 2
-      ;;
-    --claude-port=*)
-      CLAUDE_PORT="${1#*=}"
-      shift
-      ;;
-    --codex-port)
-      require_value "$1" "${2:-}"
-      CODEX_PORT="$2"
-      shift 2
-      ;;
-    --codex-port=*)
-      CODEX_PORT="${1#*=}"
-      shift
-      ;;
-    --ssh-port)
-      require_value "$1" "${2:-}"
-      SSH_PORT="$2"
-      shift 2
-      ;;
-    --ssh-port=*)
-      SSH_PORT="${1#*=}"
-      shift
-      ;;
-    --python-bin)
-      require_value "$1" "${2:-}"
-      PYTHON_BIN="$2"
-      shift 2
-      ;;
-    --python-bin=*)
-      PYTHON_BIN="${1#*=}"
       shift
       ;;
     --node-bin)
@@ -250,11 +104,6 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-if [[ "$EXECUTOR" != "codex" && "$EXECUTOR" != "claude" ]]; then
-  echo "--executor must be codex or claude" >&2
-  exit 2
-fi
-
 if [[ -n "$APP_ENV_ARG" ]]; then
   APP_ENV="$APP_ENV_ARG"
 fi
@@ -275,153 +124,6 @@ is_development_app_env() {
 hub_development_notice() {
   printf 'Hub development mode enabled: local/LAN token checks are bypassed.\n'
 }
-
-split_csv() {
-  local input="$1"
-  local -n output_ref="$2"
-  local item
-  output_ref=()
-
-  input="${input// /}"
-  [[ -z "$input" ]] && return
-
-  IFS=',' read -ra raw_items <<< "$input"
-  for item in "${raw_items[@]}"; do
-    [[ -n "$item" ]] && output_ref+=("$item")
-  done
-}
-
-default_workers() {
-  if [[ "$EXECUTOR" == "claude" ]]; then
-    echo "gpt context claude ollama ssh"
-  else
-    echo "gpt context codex ollama ssh"
-  fi
-}
-
-expand_workers() {
-  local input="$1"
-  local -n output_ref="$2"
-  local items=()
-  local item
-  output_ref=()
-
-  if [[ -z "$input" ]]; then
-    read -ra output_ref <<< "$(default_workers)"
-    return
-  fi
-
-  split_csv "$input" items
-  for item in "${items[@]}"; do
-    case "$item" in
-      all)
-        read -ra output_ref <<< "$(default_workers)"
-        ;;
-      core)
-        output_ref+=("gpt" "context" "$EXECUTOR")
-        ;;
-      command)
-        output_ref+=("$EXECUTOR")
-        ;;
-      none)
-        ;;
-      hub)
-        START_HUB=1
-        ;;
-      gpt|context|codex|claude|ollama|ssh)
-        output_ref+=("$item")
-        ;;
-      *)
-        echo "Unknown worker: $item" >&2
-        exit 2
-        ;;
-    esac
-  done
-}
-
-contains() {
-  local needle="$1"
-  shift
-  local item
-  for item in "$@"; do
-    [[ "$item" == "$needle" ]] && return 0
-  done
-  return 1
-}
-
-unique_workers() {
-  local -n input_ref="$1"
-  local -n output_ref="$2"
-  local item
-  output_ref=()
-  for item in "${input_ref[@]}"; do
-    contains "$item" "${output_ref[@]}" || output_ref+=("$item")
-  done
-}
-
-filter_excludes() {
-  local -n input_ref="$1"
-  local -n output_ref="$2"
-  local excludes=()
-  local item
-  split_csv "$EXCLUDE_ARG" excludes
-  output_ref=()
-
-  for item in "${input_ref[@]}"; do
-    contains "$item" "${excludes[@]}" || output_ref+=("$item")
-  done
-
-  if contains "hub" "${excludes[@]}"; then
-    START_HUB=0
-  fi
-}
-
-workers=()
-if [[ -n "$ONLY_ARG" ]]; then
-  START_HUB=0
-  only_items=()
-  split_csv "$ONLY_ARG" only_items
-  for item in "${only_items[@]}"; do
-    case "$item" in
-      hub)
-        START_HUB=1
-        ;;
-      gpt|context|codex|claude|ollama|ssh)
-        workers+=("$item")
-        ;;
-      command)
-        workers+=("$EXECUTOR")
-        ;;
-      all|core|none)
-        expanded=()
-        expand_workers "$item" expanded
-        workers+=("${expanded[@]}")
-        ;;
-      *)
-        echo "Unknown service: $item" >&2
-        exit 2
-        ;;
-    esac
-  done
-else
-  expand_workers "$WORKERS_ARG" workers
-fi
-
-unique=()
-unique_workers workers unique
-filtered=()
-filter_excludes unique filtered
-workers=("${filtered[@]}")
-
-if [[ "${#workers[@]}" -gt 0 ]]; then
-  echo "Worker servers are out of scope for v1; start the hub only." >&2
-  exit 2
-fi
-
-if [[ "$START_HUB" -ne 1 ]]; then
-  echo "The v1 runner only starts the hub server." >&2
-  exit 2
-fi
 
 pids=()
 names=()
@@ -549,18 +251,16 @@ trap cleanup EXIT INT TERM
 
 prepare_log_dir
 
-if [[ "$START_HUB" -eq 1 ]]; then
-  SELECTED_CHAT_PROVIDER="$(select_hub_provider)"
-  HUB_APP_ENV="${APP_ENV:-development}"
-  if [[ "$DRY_RUN" -ne 1 ]]; then
-    echo "Log folder: $RUN_LOG_DIR"
-  fi
-  start_process "hub" "$ROOT_DIR/hub" env \
-    PORT="$HUB_PORT" \
-    CHAT_PROVIDER="$SELECTED_CHAT_PROVIDER" \
-    APP_ENV="$HUB_APP_ENV" \
-    "$NODE_BIN" hub.js
+SELECTED_CHAT_PROVIDER="$(select_hub_provider)"
+HUB_APP_ENV="${APP_ENV:-development}"
+if [[ "$DRY_RUN" -ne 1 ]]; then
+  echo "Log folder: $RUN_LOG_DIR"
 fi
+start_process "hub" "$ROOT_DIR/hub" env \
+  PORT="$HUB_PORT" \
+  CHAT_PROVIDER="$SELECTED_CHAT_PROVIDER" \
+  APP_ENV="$HUB_APP_ENV" \
+  "$NODE_BIN" hub.js
 
 if [[ "$DRY_RUN" -eq 1 ]]; then
   exit 0
