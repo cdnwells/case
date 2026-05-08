@@ -67,18 +67,18 @@ test("Android recognizer options use wake-word and dictation tuned language mode
     "web_search",
   );
   assert.equal(
-    createSpeechInputAndroidIntentOptions({ silenceTimeout: 8000 })
+    createSpeechInputAndroidIntentOptions({ silenceTimeout: 16000 })
       .EXTRA_LANGUAGE_MODEL,
     "free_form",
   );
   assert.equal(
-    createSpeechInputAndroidIntentOptions({ silenceTimeout: 8000 })
+    createSpeechInputAndroidIntentOptions({ silenceTimeout: 16000 })
       .EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS,
-    8000,
+    16000,
   );
   assert.equal(
-    createSpeechInputAndroidIntentOptions({ silenceTimeout: 8000 })
+    createSpeechInputAndroidIntentOptions({ silenceTimeout: 16000 })
       .EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS,
-    6000,
+    12000,
   );
 });

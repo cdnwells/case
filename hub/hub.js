@@ -51,6 +51,7 @@ const config = {
   openaiRealtimeReasoningEffort: process.env.OPENAI_REALTIME_REASONING_EFFORT || 'low',
   openaiRealtimeTranscriptionModel: process.env.OPENAI_REALTIME_TRANSCRIPTION_MODEL || 'gpt-realtime-whisper',
   openaiRealtimeTranscriptionLanguage: process.env.OPENAI_REALTIME_TRANSCRIPTION_LANGUAGE || 'ko',
+  openaiRealtimeTurnDetectionEagerness: process.env.OPENAI_REALTIME_TURN_DETECTION_EAGERNESS || 'low',
   openaiRealtimeTimeout: parseInt(process.env.OPENAI_REALTIME_TIMEOUT || process.env.OPENAI_TIMEOUT || '120', 10),
   ollamaBaseUrl: process.env.OLLAMA_BASE_URL || 'http://localhost:11434',
   ollamaModel: process.env.OLLAMA_MODEL || 'gpt-oss-20b',
@@ -225,6 +226,7 @@ const OPENAI_TTS_CONTENT_TYPE = 'audio/mpeg'
 const OPENAI_TTS_MAX_INPUT_CHARS = 8000
 const OPENAI_REALTIME_ALLOWED_VOICES = OPENAI_TTS_ALLOWED_VOICES
 const OPENAI_REALTIME_ALLOWED_REASONING_EFFORTS = new Set(['low', 'medium', 'high', 'xhigh'])
+const OPENAI_REALTIME_ALLOWED_TURN_DETECTION_EAGERNESS = new Set(['low', 'medium', 'high', 'auto'])
 const OPENAI_REALTIME_SDP_MAX_CHARS = 256 * 1024
 const OPENAI_REALTIME_CONTENT_TYPE = 'application/sdp'
 const PNG_SIGNATURE = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]
@@ -1054,6 +1056,16 @@ function normalizeOpenAiRealtimeReasoningEffort(value) {
     : String(config.openaiRealtimeReasoningEffort || '').trim().toLowerCase()
 
   return OPENAI_REALTIME_ALLOWED_REASONING_EFFORTS.has(effort) ? effort : 'low'
+}
+
+function normalizeOpenAiRealtimeTurnDetectionEagerness(value) {
+  const eagerness = typeof value === 'string' && value.trim()
+    ? value.trim().toLowerCase()
+    : String(config.openaiRealtimeTurnDetectionEagerness || '').trim().toLowerCase()
+
+  return OPENAI_REALTIME_ALLOWED_TURN_DETECTION_EAGERNESS.has(eagerness)
+    ? eagerness
+    : 'low'
 }
 
 function validateSpeechBody(body) {
@@ -3497,6 +3509,9 @@ async function buildRealtimeInstructions({ conversationId, logger } = {}) {
 async function buildOpenAiRealtimeSessionConfig({ conversationId, logger } = {}) {
   const voice = normalizeOpenAiRealtimeVoice(config.openaiRealtimeVoice) || 'marin'
   const reasoningEffort = normalizeOpenAiRealtimeReasoningEffort(config.openaiRealtimeReasoningEffort)
+  const turnDetectionEagerness = normalizeOpenAiRealtimeTurnDetectionEagerness(
+    config.openaiRealtimeTurnDetectionEagerness,
+  )
 
   return {
     type: 'realtime',
@@ -3514,6 +3529,7 @@ async function buildOpenAiRealtimeSessionConfig({ conversationId, logger } = {})
         },
         turn_detection: {
           type: 'semantic_vad',
+          eagerness: turnDetectionEagerness,
         },
       },
       output: {

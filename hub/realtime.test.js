@@ -42,6 +42,7 @@ test.beforeEach(() => {
     openaiRealtimeReasoningEffort: 'medium',
     openaiRealtimeTranscriptionModel: 'gpt-realtime-whisper',
     openaiRealtimeTranscriptionLanguage: 'ko',
+    openaiRealtimeTurnDetectionEagerness: 'low',
     openaiRealtimeTimeout: 12,
   })
   globalThis.fetch = originalFetch
@@ -107,6 +108,7 @@ test('realtime call endpoint exchanges a WebRTC offer for an OpenAI SDP answer',
         },
         turn_detection: {
           type: 'semantic_vad',
+          eagerness: 'low',
         },
       },
       output: { voice: 'cedar' },

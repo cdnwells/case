@@ -135,7 +135,7 @@ expectIncludes(
 );
 expectIncludes(
   chatInputSource,
-  "const DEFAULT_VOICE_INPUT_SILENCE_TIMEOUT_MS = 8000",
+  "const DEFAULT_VOICE_INPUT_SILENCE_TIMEOUT_MS = 16000",
   "chat input gives normal voice command capture a longer silence timeout",
 );
 expectIncludes(
@@ -145,7 +145,7 @@ expectIncludes(
 );
 expectIncludes(
   chatInputSource,
-  "const WAKE_WORD_VOICE_INPUT_SILENCE_TIMEOUT_MS = 12000",
+  "const WAKE_WORD_VOICE_INPUT_SILENCE_TIMEOUT_MS = 20000",
   "chat input gives wake-word-triggered speech a longer silence timeout",
 );
 expectIncludes(
