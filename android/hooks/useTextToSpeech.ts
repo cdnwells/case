@@ -1,4 +1,5 @@
 import { useState, useCallback, useEffect, useRef } from "react";
+import { requireOptionalNativeModule } from "expo";
 import { File } from "expo-file-system";
 import * as Speech from "expo-speech";
 import type {
@@ -60,6 +61,10 @@ function deleteGeneratedSpeechFile(uri: string | null) {
 }
 
 async function loadExpoAudioModule(): Promise<ExpoAudioModule | null> {
+  if (!requireOptionalNativeModule("ExpoAudio")) {
+    return null;
+  }
+
   try {
     return (await import("expo-audio")) as ExpoAudioModule;
   } catch {

@@ -10,6 +10,8 @@ const chatInputSource = readFileSync(
 
 test("text-to-speech prefers OpenAI marin or cedar audio with device fallback", () => {
   assert.match(hookSource, /createAudioPlayer/);
+  assert.match(hookSource, /requireOptionalNativeModule\("ExpoAudio"\)/);
+  assert.match(hookSource, /return null;[\s\S]*await import\("expo-audio"\)/);
   assert.match(hookSource, /await import\("expo-audio"\)/);
   assert.match(hookSource, /synthesizeSpeech/);
   assert.match(hookSource, /DEFAULT_OPENAI_VOICE: OpenAITtsVoice = "marin"/);
