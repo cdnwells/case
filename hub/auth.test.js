@@ -58,39 +58,21 @@ async function refreshLocal(headers = {}) {
   })
 }
 
-test('sensitive hub routes require a Case Hub token while public routes stay open', async (t) => {
+test('hub API routes no longer require a Case Hub token', async (t) => {
   await configureIsolatedAuth(t)
 
   const missingTokenResponse = await fastify.inject({
     method: 'GET',
     url: '/context',
   })
-  assert.equal(missingTokenResponse.statusCode, 401)
-  assert.deepEqual(missingTokenResponse.json(), {
-    error: 'Unauthorized',
-    message: 'Case Hub token is required',
-  })
+  assert.equal(missingTokenResponse.statusCode, 200)
 
   const wrongTokenResponse = await fastify.inject({
     method: 'GET',
     url: '/context',
     headers: tokenHeaders('wrong-token'),
   })
-  assert.equal(wrongTokenResponse.statusCode, 401)
-
-  const missingSpeechTokenResponse = await fastify.inject({
-    method: 'POST',
-    url: '/speech',
-    payload: { input: 'hello' },
-  })
-  assert.equal(missingSpeechTokenResponse.statusCode, 401)
-
-  const missingRealtimeTokenResponse = await fastify.inject({
-    method: 'POST',
-    url: '/realtime/calls',
-    payload: { sdp: 'v=0\r\n' },
-  })
-  assert.equal(missingRealtimeTokenResponse.statusCode, 401)
+  assert.equal(wrongTokenResponse.statusCode, 200)
 
   const headerTokenResponse = await fastify.inject({
     method: 'GET',
@@ -119,7 +101,7 @@ test('sensitive hub routes require a Case Hub token while public routes stay ope
   assert.equal(robotsResponse.statusCode, 200)
 })
 
-test('development app environment bypasses token checks only for local or LAN requests', async (t) => {
+test('app environment no longer changes token enforcement', async (t) => {
   await configureIsolatedAuth(t, {
     appEnv: 'development',
   })
@@ -140,7 +122,7 @@ test('development app environment bypasses token checks only for local or LAN re
       'x-forwarded-for': '203.0.113.10',
     },
   })
-  assert.equal(publicForwardedResponse.statusCode, 401)
+  assert.equal(publicForwardedResponse.statusCode, 200)
 })
 
 test('LAN refresh rotates only once per interval and keeps the previous token in grace', async (t) => {

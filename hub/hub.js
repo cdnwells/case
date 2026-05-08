@@ -662,21 +662,6 @@ fastify.addHook('onRequest', async (request, reply) => {
     })
   }
 
-  if (isProtectedHubPath(pathname)) {
-    if (isCaseHubAuthBypassedForRequest(request)) {
-      return
-    }
-
-    const token = extractCaseHubToken(request)
-    const isAuthenticated = await authTokenStore.verifyToken(token)
-    if (!isAuthenticated) {
-      reply.header('WWW-Authenticate', `Bearer realm="${CASE_HUB_AUTH_REALM}"`)
-      return reply.code(401).send({
-        error: 'Unauthorized',
-        message: 'Case Hub token is required',
-      })
-    }
-  }
 })
 
 // In-memory command result store

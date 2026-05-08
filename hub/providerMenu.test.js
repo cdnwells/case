@@ -45,6 +45,6 @@ test('startup provider menu shows development app environment', async () => {
   const renderedMenu = writes.join('')
 
   assert.equal(selectedProvider, 'codex')
-  assert.match(renderedMenu, /^App environment: development \(local\/LAN token bypass\)$/m)
+  assert.match(renderedMenu, /^App environment: development$/m)
   assert.match(renderedMenu, /^> codex$/m)
 })

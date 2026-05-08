@@ -122,7 +122,7 @@ is_development_app_env() {
 }
 
 hub_development_notice() {
-  printf 'Hub development mode enabled: local/LAN token checks are bypassed.\n'
+  printf 'Hub development mode enabled.\n'
 }
 
 pids=()

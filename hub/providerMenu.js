@@ -12,17 +12,12 @@ function normalizeAppEnv(value) {
   return typeof value === 'string' ? value.trim().toLowerCase() : ''
 }
 
-function isDevelopmentAppEnv(appEnv) {
-  const normalizedAppEnv = normalizeAppEnv(appEnv)
-  return normalizedAppEnv === 'development' || normalizedAppEnv === 'dev' || normalizedAppEnv === 'local'
-}
-
 function renderProviderMenu(selectedIndex, providers = CHAT_PROVIDERS, appEnv = '') {
   const normalizedAppEnv = normalizeAppEnv(appEnv)
   const lines = [
     'Select chat provider',
     ...(normalizedAppEnv
-      ? [`App environment: ${normalizedAppEnv}${isDevelopmentAppEnv(normalizedAppEnv) ? ' (local/LAN token bypass)' : ''}`]
+      ? [`App environment: ${normalizedAppEnv}`]
       : []),
     'Use arrow keys to choose a provider, then press Enter.',
     '',

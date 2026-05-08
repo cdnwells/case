@@ -45,7 +45,7 @@ test('deploy dry-run starts only the merged hub without context worker preflight
   assert.match(result.stdout, /\[dry-run\] \(hub\) cd .*\/hub &&/)
   assert.match(result.stdout, /CHAT_PROVIDER=codex/)
   assert.match(result.stdout, /APP_ENV=development/)
-  assert.match(result.stdout, /Hub development mode enabled: local\/LAN token checks are bypassed\./)
+  assert.match(result.stdout, /Hub development mode enabled\./)
   assert.ok(
     result.stdout.indexOf('Hub development mode enabled') < result.stdout.indexOf('[dry-run] (hub)'),
     result.stdout,
@@ -62,7 +62,7 @@ test('deploy dry-run passes --env flag as the hub app environment', async () => 
   assert.equal(result.exitCode, 0, result.stderr || result.stdout)
   assert.equal(result.signal, null)
   assert.match(result.stdout, /APP_ENV=development/)
-  assert.match(result.stdout, /Hub development mode enabled: local\/LAN token checks are bypassed\./)
+  assert.match(result.stdout, /Hub development mode enabled\./)
   assert.doesNotMatch(result.stdout, /APP_ENV=production/)
   assert.equal(result.stderr, '')
 })

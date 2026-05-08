@@ -34,17 +34,18 @@ test.beforeEach(() => {
   globalThis.fetch = originalFetch
 })
 
-test('Drive routes require a Case Hub token', async () => {
+test('Drive routes do not require a Case Hub token', async () => {
+  globalThis.fetch = async () => new Response(JSON.stringify({
+    files: [],
+  }), { status: 200 })
+
   const response = await fastify.inject({
     method: 'GET',
     url: '/drive/files',
   })
 
-  assert.equal(response.statusCode, 401)
-  assert.deepEqual(response.json(), {
-    error: 'Unauthorized',
-    message: 'Case Hub token is required',
-  })
+  assert.equal(response.statusCode, 200)
+  assert.deepEqual(response.json(), { files: [] })
 })
 
 async function postChat(payload) {
