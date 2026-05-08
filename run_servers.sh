@@ -53,7 +53,6 @@ Options:
   --exclude LIST              Services to skip from the selected set
   --env ENV                   App environment for the hub (default: APP_ENV or development)
   --no-hub                    Invalid for v1; the runner starts the hub only
-  --hub-only                  Start the hub only
   --host HOST                 Worker bind host (default: 0.0.0.0)
   --hub-port PORT             Hub port (default: 5000)
   --gpt-port PORT             GPT worker port (default: 8000)
@@ -71,8 +70,7 @@ Options:
 Examples:
   ./run_servers.sh
   ./run_servers.sh --env development
-  ./run_servers.sh --hub-only
-  ./run_servers.sh --only hub
+  ./run_servers.sh --env production --dry-run
 USAGE
 }
 
