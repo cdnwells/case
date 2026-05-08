@@ -222,3 +222,33 @@ test("message URL badge parts condenses three or more badges with an ellipsis ba
     ],
   );
 });
+
+test("message URL badge parts consumes final URL-only reference blocks", () => {
+  const parts = getMessageUrlBadgeParts(
+    [
+      "The answer is based on current docs.",
+      "",
+      "References:",
+      "https://example.com/article",
+      "https://example.org/report?x=1",
+    ].join("\n"),
+  );
+
+  assert.equal(parts.text, "The answer is based on current docs.");
+  assert.deepEqual(
+    parts.badges.map(({ kind, label, url }) => ({ kind, label, url })),
+    [
+      { kind: "tag", label: "출처", url: undefined },
+      {
+        kind: "reference",
+        label: "example.com/article",
+        url: "https://example.com/article",
+      },
+      {
+        kind: "reference",
+        label: "example.org/report",
+        url: "https://example.org/report?x=1",
+      },
+    ],
+  );
+});

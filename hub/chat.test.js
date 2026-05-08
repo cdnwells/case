@@ -487,6 +487,27 @@ test('buildGptMessages includes accepted JPEG attachment data as OpenAI image co
   })
 })
 
+test('provider response format prompts require final URL-only source blocks', async () => {
+  const expectedSourceBlock = [
+    'Sources:',
+    'https://example.com/article',
+    'https://example.org/report',
+  ].join('\n')
+  const prompts = [
+    await buildExpectedGptSystemPrompt(),
+    await buildExpectedCodexSystemPrompt(),
+    await buildExpectedOllamaSystemPrompt(),
+  ]
+
+  for (const prompt of prompts) {
+    assert.equal(prompt.includes(expectedSourceBlock), true)
+    assert.match(prompt, /final block of the user-visible response/i)
+    assert.match(prompt, /absolute http:\/\/ or https:\/\/ URLs/)
+    assert.match(prompt, /Do not use markdown links, footnotes, bullets, numbering/)
+    assert.match(prompt, /place this source block inside the message string/)
+  }
+})
+
 test('normalizeChatRequestBody preserves accepted JPEG MIME type, filename, and raw bytes', () => {
   const dataBase64 = acceptedJpegFixtureDataBase64
   const imageBytes = Buffer.from(dataBase64, 'base64')
