@@ -1,115 +1,242 @@
-# Case — AI 음성 에이전트 시스템
+# Case
 
-개인용 AI 비서 **Case**의 풀스택 시스템입니다. 음성 명령과 텍스트 채팅을 통해 AI와 대화하고, 로컬 머신에서 명령을 실행할 수 있습니다.
+Case is a personal AI assistant stack with an Android client and a merged Node.js Hub. The Android app captures text, files, images, and voice input; the Hub owns chat provider dispatch, memory injection, command result polling, OpenAI speech/realtime calls, and optional file-worker integration.
 
-## 데모
+## Demo
 
-![Demo](repo/case_001.gif)
+![Case demo](repo/case_001.gif)
 
-## 아키텍처
+## Architecture
 
-중앙 Hub가 Android 요청을 받고 채팅 provider와 메모리 저장을 같은 프로세스에서 처리합니다.
-
-```
-┌─────────────────┐
-│  Android Client  │
-│  (Expo / React   │
-│   Native)        │
-└────────┬────────┘
-         │
-    ┌────▼────┐
-    │   Hub   │  Node.js / Fastify (port 5000)
-    │         │  Codex / Claude / GPT / Ollama / Memory
-    └─────────┘
+```text
+Android app (Expo / React Native)
+        |
+        | HTTP
+        v
+Hub (Node.js / Fastify, port 5000)
+        |
+        +-- Chat providers: Codex CLI, Claude Code CLI, OpenAI GPT, Ollama
+        +-- Memory: in-process file-backed Memory v2 store
+        +-- Speech: OpenAI text-to-speech and Realtime WebRTC session bridge
+        +-- Files: optional Drive worker proxy for uploads, downloads, and attachments
 ```
 
-| Provider | 역할                                  |
-| -------- | ------------------------------------- |
-| GPT      | OpenAI GPT 기반 채팅 처리             |
-| Memory   | Hub 내장 대화 컨텍스트 및 메모리 저장/조회 |
-| Ollama   | 로컬 LLM(Ollama) 기반 채팅            |
-| Claude   | Claude Code CLI 기반 레거시 명령 실행 |
-| Codex    | Codex CLI를 통한 로컬 명령 실행       |
+The current runtime is the merged Hub. Legacy Python workers and provider prompt assets remain under `hub/workers/`, but the main local runner starts only `hub/hub.js`.
 
-## 주요 기능
+## Features
 
-- **음성 입력 & 웨이크워드 감지** — "케이스" 호출 시 자동 음성 인식 시작, 레인보우 글로우 효과
-- **TTS 응답** — AI 응답을 음성으로 출력
-- **컨텍스트 메모리** — 대화 맥락을 기억하고 활용
-- **명령 실행** — 자연어로 로컬/원격 머신 명령 수행 (fire-and-forget + 결과 폴링)
-- **생체 인증** — 앱 실행 시 지문/얼굴 인식 잠금
-- **배터리 최적화 해제** — 백그라운드 음성 감지를 위한 자동 권한 요청
+- Text chat through selectable providers: `codex`, `claude`, `gpt`, or `ollama`.
+- Image understanding for Codex and supported OpenAI GPT models.
+- Google Drive file attachment handling through an optional Drive worker.
+- Generated file upload/download flow through the same Drive worker interface.
+- File-backed long-term memory with core, working, episodic, semantic, and procedural memory records.
+- Command planning from provider responses with in-memory queue status and Android polling.
+- OpenAI text-to-speech and OpenAI Realtime voice session endpoints.
+- Android voice UX with biometric lock, battery optimization prompt, approved voice profiles, wake-word fallback, rolling audio buffer controls, and explicit approved-audio save flow.
+- Android phone-only app configuration for physical Android devices.
 
-## 기술 스택
+## Repository Layout
 
-| 영역       | 기술                                  |
-| ---------- | ------------------------------------- |
-| 클라이언트 | React Native, Expo SDK 54, TypeScript |
-| Hub        | Node.js, Fastify                      |
-| Worker assets | Hub 내부 provider docs 및 legacy Python worker 코드 |
-| AI         | OpenAI GPT, Codex CLI, Claude Code CLI, Ollama |
-| 인프라     | 단일 Hub 프로세스                     |
-
-## 프로젝트 구조
-
-```
+```text
 case/
-├── hub/              # 중앙 Fastify 서버
-│   └── workers/      # Hub provider docs 및 legacy worker 코드
-└── android/          # Expo React Native 앱
+|-- android/              # Expo / React Native Android app
+|   |-- app/              # Expo Router entrypoints
+|   |-- components/       # Chat, auth, and UI components
+|   |-- hooks/            # Chat, voice, realtime, TTS, auth hooks
+|   |-- modules/          # Local native Expo modules
+|   `-- services/         # API and voice service code
+|-- hub/                  # Fastify Hub
+|   |-- hub.js            # Main server and route definitions
+|   |-- memory-v2.js      # File-backed memory model
+|   |-- provider*.js      # Provider menu, capabilities, validation
+|   `-- workers/          # Legacy worker code and provider prompt assets
+|-- specs/                # Numbered implementation plans
+|-- repo/                 # Demo assets
+`-- run_servers.sh        # Local Hub runner
 ```
 
-## 서버 실행
+## Requirements
 
-처음 실행 전에는 Hub 의존성을 설치합니다.
+- Node.js with `pnpm`.
+- A real Android phone for manual Android testing.
+- One or more chat provider dependencies:
+  - Codex CLI for `CHAT_PROVIDER=codex`.
+  - Claude Code CLI for `CHAT_PROVIDER=claude`.
+  - `OPENAI_API_KEY` for `CHAT_PROVIDER=gpt`, `/speech`, and `/realtime/calls`.
+  - A running Ollama daemon and installed model for `CHAT_PROVIDER=ollama`.
+- Optional Drive worker if Drive file listing, attachment download, or generated file upload is needed.
+
+## Install
+
+Install Hub dependencies:
 
 ```bash
-cd hub && pnpm install && cd ..
+cd hub
+pnpm install
 ```
 
-루트에서 `run_servers.sh`를 실행하면 Hub가 시작됩니다. 채팅 provider(Codex, Claude, GPT, Ollama)와 메모리 저장소는 Hub 프로세스 안에서 처리됩니다.
+Install Android dependencies:
+
+```bash
+cd android
+pnpm install
+```
+
+## Run The Hub
+
+From the repository root:
 
 ```bash
 ./run_servers.sh
 ```
 
-Ollama가 실제 채팅을 처리하려면 `OLLAMA_MODEL`에 맞는 모델이 로컬 Ollama에 설치되어 있어야 합니다. 메모리는 기본적으로 `hub/data/memories.json`에 저장되며 `MEMORY_DATA_DIR`로 위치를 바꿀 수 있습니다.
+The runner prompts for a chat provider unless `CHAT_PROVIDER` is already set. It writes logs under `.logs/<YYMMDD>/` by default and tails the Hub log until stopped.
 
-### Hub Access
-
-The Hub no longer requires a Case Hub token for API routes such as `/chat`, `/context*`, `/drive*`, `/speech`, `/realtime*`, `/command*`, or `/commands*`.
-
-`APP_ENV=development|production` still controls local runner labeling and environment selection, but it does not enable token enforcement.
-
-Cloudflare should still block unrelated public scanner paths such as `/.git*`, `/wp-*`, and `/xmlrpc.php`.
-
-자주 쓰는 옵션:
+Common examples:
 
 ```bash
 ./run_servers.sh --env development
+CHAT_PROVIDER=codex ./run_servers.sh
 CHAT_PROVIDER=gpt OPENAI_API_KEY=... ./run_servers.sh
-CHAT_PROVIDER=ollama OLLAMA_MODEL=... ./run_servers.sh
+CHAT_PROVIDER=ollama OLLAMA_MODEL=gpt-oss-20b ./run_servers.sh
 ./run_servers.sh --dry-run
 ```
 
-## 설정
+Useful runner options:
 
-### Android 음성 게이트 롤링 버퍼
+| Option | Purpose |
+| --- | --- |
+| `--env development|production` | Sets the Hub `APP_ENV` value. |
+| `--hub-port PORT` | Overrides the Hub port. Default: `5000`. |
+| `--node-bin PATH` | Uses a specific Node executable. |
+| `--log-dir DIR` | Changes the log root directory. |
+| `--dry-run` | Prints the startup command without launching the server. |
 
-음성 게이트의 롤링 오디오 버퍼는 승인된 음성 인식 전 캡처 구간을 기기 내 임시 메모리에만 보관합니다. 기본 길이는 `ROLLING_BUFFER_DEFAULT_DURATION_SECONDS`에서 정의하며 값은 `15`초로 고정됩니다.
+## Android Configuration
 
-| 옵션 | 기본값 | 유효 범위 | 단위 | 설정 위치 |
-| ---- | ------ | --------- | ---- | --------- |
-| `ROLLING_BUFFER_DURATION_SECONDS` | `15` | `1` 이상 `60` 이하 | seconds | 명시적 롤링 버퍼 활성 길이 오버라이드 바인딩 |
-| `rollingBufferActiveDurationSeconds` | `15` | `1` 이상 `60` 이하 | seconds | Android 앱의 롤링 버퍼 사용자 설정 |
-| `rolling_buffer_default_duration_seconds` | `15` | 고정 | seconds | 내보낸 롤링 버퍼 설정 스키마 |
-| `rolling_buffer_active_duration_seconds` | `15` | `1` 이상 `60` 이하 | seconds | 내보낸 롤링 버퍼 설정 스키마 |
+The Android app reads its Hub URL and app environment from Expo public environment variables and Expo `extra` config.
 
-수동 변경은 `ROLLING_BUFFER_CUSTOMIZATION_SOURCE`가 가리키는 명시적 오버라이드 바인딩인 `ROLLING_BUFFER_DURATION_SECONDS`를 설정할 때만 적용됩니다. 이 바인딩의 기본값은 `ROLLING_BUFFER_DEFAULT_DURATION_SECONDS`에서 온 `15`초이며, 해석 결과는 `rolling_buffer_active_duration_seconds`에만 매핑됩니다. 저장된 사용자 설정은 활성 값을 `rollingBufferActiveDurationSeconds`로 보관하고 `rollingBufferCustomizationSource: "ROLLING_BUFFER_DURATION_SECONDS"`와 `rollingBufferDefaultConfigName: "ROLLING_BUFFER_DEFAULT_DURATION_SECONDS"`를 함께 기록해 어떤 값이 활성 오버라이드이고 어떤 값이 권위 있는 기본 바인딩인지 구분합니다.
+For local development, create an Android environment file with values like:
 
-해석 규칙은 고정되어 있습니다. 명시적 `ROLLING_BUFFER_DURATION_SECONDS` 오버라이드나 저장된 `rollingBufferActiveDurationSeconds`가 없거나 `null`이면 `rolling_buffer_active_duration_seconds`는 `ROLLING_BUFFER_DEFAULT_DURATION_SECONDS`에서 해석된 `15`초입니다. 유효한 오버라이드 값이 있으면 활성 길이만 해당 초 수로 바뀌고, `ROLLING_BUFFER_DEFAULT_DURATION_SECONDS`와 `rolling_buffer_default_duration_seconds`는 계속 `15`초입니다. 기존 호환용 `rollingBufferDurationSeconds` 또는 `rolling_buffer_duration_seconds` 필드는 해석이 끝난 현재 활성 길이를 보여주는 별칭일 뿐이며, 입력이나 저장 설정에서 수동 변경 소스로 사용할 수 없습니다.
+```bash
+EXPO_PUBLIC_CASE_HUB_URL=http://<hub-host>:5000
+EXPO_PUBLIC_APP_ENV=development
+EXPO_PUBLIC_OPENAI_REALTIME_ENABLED=1
+EXPO_PUBLIC_OPENAI_TTS_VOICE=marin
+```
 
-## 연락처
+For production builds, use `android/.env.production.example` as the starting point.
 
-[![Gmail](https://img.shields.io/badge/Gmail-cdnwellhk@gmail.com-EA4335?style=flat-square&logo=gmail&logoColor=white)](mailto:cdnwellhk@gmail.com)
-[![GitHub](https://img.shields.io/badge/GitHub-cdnwells-181717?style=flat-square&logo=github&logoColor=white)](https://github.com/cdnwells)
+The app variants are controlled by `APP_VARIANT`:
+
+| Variant | Package suffix | Scheme suffix | Intended use |
+| --- | --- | --- | --- |
+| `development` | `.dev` | `-dev` | Development client builds. |
+| `preview` | `.preview` | `-preview` | Internal preview builds. |
+| `production` | none | none | Production APK builds. |
+
+Android commands live in `android/package.json`:
+
+```bash
+cd android
+pnpm start:dev
+pnpm android:dev
+pnpm android:prod
+pnpm typecheck
+```
+
+Use a physical Android phone for app validation. The app is configured as Android-only, portrait-only, and smartphone-only.
+
+## Hub API
+
+Primary routes:
+
+| Route | Purpose |
+| --- | --- |
+| `GET /health` | Hub health check. |
+| `GET /robots.txt` | Disallows crawler indexing. |
+| `POST /chat` | Loads memory, dispatches the selected provider, persists new memory, uploads generated files when configured, and returns an Android message payload. |
+| `GET /command/result/:executionId` | Polls command status created from a provider response. |
+| `GET /context` | Returns selected memory context for a query/conversation/project. |
+| `GET /context/memories` | Lists stored memory records. |
+| `POST /context/memories` | Adds string or structured memory records. |
+| `DELETE /context/memories/:memoryId` | Deletes one memory record. |
+| `GET /drive/files` | Proxies Drive file listing through `DRIVE_WORKER_URL`. |
+| `POST /drive/files` | Proxies generated-file upload through `DRIVE_WORKER_URL`. |
+| `GET /drive/files/:fileId/metadata` | Proxies Drive metadata lookup. |
+| `GET /drive/files/:fileId/download` | Proxies Drive file download. |
+| `POST /speech` | Synthesizes MP3 audio through OpenAI TTS. |
+| `POST /realtime/calls` | Exchanges a WebRTC SDP offer for an OpenAI Realtime SDP answer. |
+| `POST /auth/refresh-local` | Rotates a local/LAN token for Android clients that still publish one. |
+
+`POST /command` is intentionally not part of the current v1 Hub surface. Commands are detected from provider output during `POST /chat`, queued in memory, and exposed through `/command/result/:executionId`.
+
+Hub API routes no longer require a Case Hub token. `APP_ENV` still controls app/runtime labeling and Android auth behavior, but it does not enable Hub route token enforcement. Public deployments should keep edge filtering in front of the Hub for unrelated scanner paths such as `/.git*`, `/wp-*`, and `/xmlrpc.php`.
+
+## Hub Configuration
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `PORT` | `5000` | Fastify listen port. |
+| `CHAT_PROVIDER` | `codex` | Skips provider prompt. One of `codex`, `claude`, `gpt`, `ollama`. |
+| `APP_ENV` | `production` in `hub.js`, `development` in `run_servers.sh` | Runtime environment label. |
+| `CODEX_PATH` | `codex` | Codex CLI executable. |
+| `CODEX_MODEL` | empty | Optional Codex model argument. |
+| `CODEX_PROFILE` | empty | Optional Codex profile argument. |
+| `CODEX_VALIDATION_TIMEOUT` | `30` | Codex startup validation timeout in seconds. |
+| `CLAUDE_PATH` | `claude` | Claude Code CLI executable. |
+| `CLAUDE_VALIDATION_TIMEOUT` | `30` | Claude startup validation timeout in seconds. |
+| `OPENAI_API_KEY` | empty | Required for GPT provider, TTS, and Realtime. |
+| `OPENAI_BASE_URL` | `https://api.openai.com/v1` | OpenAI-compatible API base URL. |
+| `OPENAI_MODEL` | `gpt-4o` | GPT chat model. |
+| `OPENAI_TIMEOUT` | `120` | OpenAI request timeout in seconds. |
+| `OPENAI_TTS_MODEL` | `gpt-4o-mini-tts` | Text-to-speech model. |
+| `OPENAI_TTS_VOICE` | `marin` | TTS voice. Supported values: `marin`, `cedar`. |
+| `OPENAI_REALTIME_MODEL` | `gpt-realtime-2` | Realtime model. |
+| `OPENAI_REALTIME_VOICE` | `OPENAI_TTS_VOICE` or `marin` | Realtime voice. |
+| `OPENAI_REALTIME_TRANSCRIPTION_MODEL` | `gpt-4o-mini-transcribe` | Realtime transcription model. |
+| `OPENAI_REALTIME_TRANSCRIPTION_LANGUAGE` | `ko` | Realtime transcription language. |
+| `OLLAMA_BASE_URL` | `http://localhost:11434` | Ollama API base URL. |
+| `OLLAMA_MODEL` | `gpt-oss-20b` | Ollama model name. |
+| `MEMORY_DATA_DIR` | `hub/data` | Directory for Hub memory and auth token files. |
+| `MEMORY_FILE` | `memories.json` | Memory store file name. |
+| `MEMORY_MAX_MEMORIES` | `200` | Maximum stored memory records. |
+| `MEMORY_MAX_CHARS` | `300` | Maximum content length per memory. |
+| `MEMORY_MAX_ENTRIES` | `10` | Memory entries selected for provider context. |
+| `DRIVE_WORKER_URL` | empty | Optional Drive worker URL. Required for Drive routes and generated-file upload. |
+| `DRIVE_REQUEST_TIMEOUT` | `60` | Drive worker request timeout in seconds. |
+| `DRIVE_TEXT_ATTACHMENT_MAX_CHARS` | `50000` | Maximum injected text from Drive text attachments. |
+| `GENERATED_FILE_MAX_BYTES` | `10485760` | Maximum generated file payload size. |
+| `GENERATED_FILE_MAX_COUNT` | `5` | Maximum generated files per provider response. |
+| `CONTEXT_WORKER_URL` | empty | Optional legacy context worker URL. If set, Hub validates `/health` at startup and can load context through it. |
+| `LOG_LEVEL` | `info` | Fastify log level. |
+
+## Memory And Commands
+
+Memory is stored in `hub/data/memories.json` by default. The store normalizes records, rejects low-value memories, deduplicates content, and selects relevant entries for provider prompts.
+
+Command queue state is in memory only. If the Hub restarts, queued or completed command results are lost. Android polls every few seconds and treats missing results as `not_found` until retries are exhausted.
+
+## Verification
+
+Hub tests:
+
+```bash
+cd hub
+pnpm test
+```
+
+Android TypeScript check:
+
+```bash
+cd android
+pnpm typecheck
+```
+
+Manual Android validation should be done on a physical device. Do not rely on an Android virtual machine for this project.
+
+## Contact
+
+[Gmail](mailto:cdnwellhk@gmail.com)
+
+[GitHub](https://github.com/cdnwells)
