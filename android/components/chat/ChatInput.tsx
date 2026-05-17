@@ -37,6 +37,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ApprovedAudioSavePrompt } from "./ApprovedAudioSavePrompt";
 import Animated, {
   useSharedValue,
@@ -121,6 +122,7 @@ export function ChatInput({
   const voiceInputCanSubmitRef = useRef(false);
   const realtimeVoiceModeRef = useRef(false);
   const textInputRef = useRef<TextInput>(null);
+  const insets = useSafeAreaInsets();
   const colorScheme = useColorScheme();
 
   const backgroundColor = colorScheme === "dark" ? "#2c2c2e" : "#f5f5f5";
@@ -840,6 +842,7 @@ export function ChatInput({
     !attachmentError &&
     selectedImageAttachmentCanSend;
   const primaryActionAvailable = canSend || canStartPrimaryRealtimeVoice;
+  const attachmentMenuBottomPadding = Math.max(16, insets.bottom + 16);
 
   return (
     <View style={[styles.container, { paddingBottom: 8 }]}>
@@ -849,7 +852,12 @@ export function ChatInput({
           animationType="fade"
           onRequestClose={() => setIsAttachmentMenuVisible(false)}
         >
-          <View style={styles.modalBackdrop}>
+          <View
+            style={[
+              styles.modalBackdrop,
+              { paddingBottom: attachmentMenuBottomPadding },
+            ]}
+          >
             <View style={[styles.attachmentMenu, { backgroundColor }]}>
               <TouchableOpacity
                 style={styles.attachmentMenuButton}
