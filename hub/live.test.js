@@ -44,6 +44,18 @@ test('rejects malformed SDP, privileged history roles, and oversized history wit
   assert.equal(calls.length, 0)
   assert.equal(validateLiveHistory([]), null)
 })
+test('preserves the final SDP line ending required by the upstream parser', async () => {
+  const sdp = 'v=0\r\no=- 1 1 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\n'
+  globalThis.fetch = async (_url, options) => {
+    const body = JSON.parse(options.body || '{}')
+    if (!body.transport) return new Response(null, { status: 200 })
+    assert.equal(body.transport.sdp, sdp)
+    return body.transport.sdp.endsWith('\r\n')
+      ? Response.json({ session: { id: 'live_crlf' }, transport: { sdp: 'v=0\r\nanswer' } })
+      : Response.json({ error: { code: 'invalid_offer' } }, { status: 400 })
+  }
+  assert.equal((await create({ sdp: `  ${sdp}` })).statusCode, 201)
+})
 test('sanitizes authentication errors and forbids automatic authentication retries', async () => {
   globalThis.fetch = async () => new Response('private-test-key', { status: 401 })
   const response = await create()

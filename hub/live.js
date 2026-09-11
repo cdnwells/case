@@ -100,7 +100,8 @@ export function registerLiveRoutes(app, { config, buildInstructions, delegate })
       const instructions = await buildInstructions({ conversationId: request.body.conversationId, logger: request.log })
       const response = await upstream('', {
         session: buildLiveConfig(config, instructions, request.body.history || []),
-        transport: { type: 'webrtc', sdp: request.body.sdp.trim() },
+        // SDP is line-oriented: removing the final CRLF makes valid offers fail parsing.
+        transport: { type: 'webrtc', sdp: request.body.sdp.trimStart() },
       }, request.body.safetyIdentifier)
       const result = await response.json()
       if (typeof result.session?.id !== 'string' || typeof result.transport?.sdp !== 'string'
