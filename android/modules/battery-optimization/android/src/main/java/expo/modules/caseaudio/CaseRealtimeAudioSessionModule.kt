@@ -14,10 +14,15 @@ class CaseRealtimeAudioSessionModule : Module() {
     private var previousSpeakerphoneOn: Boolean? = null
     private var previousCommunicationDevice: AudioDeviceInfo? = null
     private var audioFocusRequest: AudioFocusRequest? = null
-    private val audioFocusChangeListener = AudioManager.OnAudioFocusChangeListener { }
+    private val audioFocusChangeListener = AudioManager.OnAudioFocusChangeListener { change ->
+        if (change == AudioManager.AUDIOFOCUS_LOSS || change == AudioManager.AUDIOFOCUS_LOSS_TRANSIENT) {
+            sendEvent("audioError", mapOf("message" to "Audio was interrupted by another app. Start voice again when it finishes."))
+        }
+    }
 
     override fun definition() = ModuleDefinition {
         Name("CaseRealtimeAudioSession")
+        Events("audioError")
 
         Function("start") { speakerphone: Boolean ->
             startSession(speakerphone)
@@ -45,7 +50,10 @@ class CaseRealtimeAudioSessionModule : Module() {
             previousCommunicationDevice = audioManager.communicationDevice
         }
 
-        requestAudioFocus(audioManager)
+        if (!requestAudioFocus(audioManager)) {
+            stopSession()
+            return false
+        }
         audioManager.mode = AudioManager.MODE_IN_COMMUNICATION
         if (speakerphone) {
             routeToSpeakerphone(audioManager)
@@ -74,7 +82,7 @@ class CaseRealtimeAudioSessionModule : Module() {
         return context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
     }
 
-    private fun requestAudioFocus(audioManager: AudioManager) {
+    private fun requestAudioFocus(audioManager: AudioManager): Boolean {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val audioAttributes = AudioAttributes.Builder()
                 .setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION)
@@ -84,17 +92,16 @@ class CaseRealtimeAudioSessionModule : Module() {
                 .setAudioAttributes(audioAttributes)
                 .setOnAudioFocusChangeListener(audioFocusChangeListener)
                 .build()
-            audioManager.requestAudioFocus(request)
             audioFocusRequest = request
-            return
+            return audioManager.requestAudioFocus(request) == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
         }
 
         @Suppress("DEPRECATION")
-        audioManager.requestAudioFocus(
+        return audioManager.requestAudioFocus(
             audioFocusChangeListener,
             AudioManager.STREAM_VOICE_CALL,
             AudioManager.AUDIOFOCUS_GAIN_TRANSIENT,
-        )
+        ) == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
     }
 
     private fun abandonAudioFocus(audioManager: AudioManager) {

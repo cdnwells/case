@@ -103,6 +103,7 @@ interface UseApprovedVoiceGateOptions {
 }
 
 interface UseApprovedVoiceGateReturn {
+  stopListening: () => Promise<void>;
   isListening: boolean;
   lastRecognition: VoiceGateRecognitionResult | null;
   approvedVoiceCount: number;
@@ -421,6 +422,7 @@ export function useApprovedVoiceGate(
   const onApprovedVoiceDetectedRef = useRef(onApprovedVoiceDetected);
   const onTimingEventRef = useRef(onTimingEvent);
   const sourceRef = useRef<VoiceGateFrameSource | null>(null);
+  const captureStopRef = useRef<Promise<void>>(Promise.resolve());
   const rollingAudioBufferRef = useRef<OnDeviceCircularAudioBuffer | null>(
     null,
   );
@@ -441,6 +443,7 @@ export function useApprovedVoiceGate(
     rollingAudioBuffer?.clear();
     setIsListening(false);
 
+    await captureStopRef.current;
     if (!source) return;
     try {
       await source.stop();
@@ -653,6 +656,7 @@ export function useApprovedVoiceGate(
       sourceRef.current = null;
       setIsListening(false);
 
+      captureStopRef.current = Promise.resolve(resolvedFrameSource.stop()).catch(() => undefined);
       try {
         const trigger = triggerSpeechProcessingPipelineFromApprovedVoiceEvent({
           approvedVoiceEvent,
@@ -678,9 +682,7 @@ export function useApprovedVoiceGate(
         approvedSpeechAudioRelease.release("processing_error");
       }
 
-      void Promise.resolve(resolvedFrameSource.stop()).catch(() => {
-        // The next voice-gate cycle will request a fresh local source.
-      });
+
     };
 
     const gate = createApprovedVoiceGate({
@@ -783,6 +785,7 @@ export function useApprovedVoiceGate(
   }, [resolvedRollingBufferActiveDurationSeconds, runtimeConfigRevision]);
 
   return {
+    stopListening,
     isListening,
     lastRecognition,
     approvedVoiceCount: loadedApprovedVoices.length,

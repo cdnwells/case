@@ -89,13 +89,16 @@ function createNativeContinuousMicrophoneCapture(
   nativeModule: NativeContinuousMicrophoneCaptureModule,
   options: NativeContinuousMicrophoneCaptureOptions,
 ): ContinuousMicrophoneCapture {
+  let captureRevision = 0;
   let frameSubscription: { remove: () => void } | null = null;
   let errorSubscription: { remove: () => void } | null = null;
 
   return {
     start: async (handlers) => {
+      const revision = ++captureRevision;
       const { granted } =
         await ExpoSpeechRecognitionModule.requestMicrophonePermissionsAsync();
+      if (revision !== captureRevision) return;
       if (!granted) {
         const error = new Error("microphone permission was not granted");
         handlers.onError?.(error);
@@ -115,6 +118,7 @@ function createNativeContinuousMicrophoneCapture(
       nativeModule.start(options);
     },
     stop: () => {
+      captureRevision++;
       frameSubscription?.remove();
       errorSubscription?.remove();
       frameSubscription = null;

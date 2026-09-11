@@ -21,26 +21,36 @@ export interface SynthesizeSpeechResponse {
   contentType: string;
 }
 
-export type OpenAIRealtimeActivationSource =
+export type OpenAILiveActivationSource =
   | "approved_voice"
   | "wake_word"
   | "manual";
 
-export interface CreateRealtimeCallRequest {
+export interface LiveHistoryMessage {
+  role: "user" | "assistant";
+  content: string;
+}
+
+export interface CreateLiveSessionRequest {
+  history?: LiveHistoryMessage[];
+  signal?: AbortSignal;
   sdp: string;
   conversationId?: string;
-  activationSource?: OpenAIRealtimeActivationSource;
+  activationSource?: OpenAILiveActivationSource;
   safetyIdentifier?: string;
 }
 
-export interface CreateRealtimeCallResponse {
+export interface CreateLiveSessionResponse {
+  sessionId: string;
+  controlToken: string;
   sdp: string;
   model: string;
   voice: OpenAITtsVoice;
-  contentType: string;
 }
 
 export interface IChatService {
+  closeLiveSession?(session: CreateLiveSessionResponse, finalized?: boolean): Promise<void>;
+  delegateLiveTask?(session: CreateLiveSessionResponse, delegationId: string, history: LiveHistoryMessage[], signal?: AbortSignal): Promise<{ content: string }>;
   refreshLocalToken?(): Promise<boolean>;
   sendMessage(request: SendMessageRequest): Promise<SendMessageResponse>;
   pollCommandResult(executionId: string): Promise<CommandResultResponse>;
@@ -49,9 +59,9 @@ export interface IChatService {
   synthesizeSpeech?(
     request: SynthesizeSpeechRequest,
   ): Promise<SynthesizeSpeechResponse>;
-  createRealtimeCall?(
-    request: CreateRealtimeCallRequest,
-  ): Promise<CreateRealtimeCallResponse>;
+  createLiveSession?(
+    request: CreateLiveSessionRequest,
+  ): Promise<CreateLiveSessionResponse>;
 }
 
 const DEFAULT_API_BASE_URL = "https://cdnwell.store";

@@ -479,9 +479,9 @@ expectBefore(
 );
 expectBefore(
   approvedVoiceProcessingHandlerSource,
+  "captureStopRef.current = Promise.resolve(resolvedFrameSource.stop())",
   "triggerSpeechProcessingPipelineFromApprovedVoiceEvent({",
-  "void Promise.resolve(resolvedFrameSource.stop()).catch(() => {",
-  "approved voice gate attempts downstream speech processing before stopping continuous capture",
+  "approved voice gate begins microphone handoff before Live starts capture",
 );
 expectEqual(
   processingCompletionCleanupSource.includes(

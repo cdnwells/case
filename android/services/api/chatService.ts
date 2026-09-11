@@ -11,8 +11,9 @@ import {
   CASE_HUB_AUTH_ENABLED,
   CASE_HUB_BOOTSTRAP_TOKEN,
   IChatService,
-  type CreateRealtimeCallRequest,
-  type CreateRealtimeCallResponse,
+  type LiveHistoryMessage,
+  type CreateLiveSessionRequest,
+  type CreateLiveSessionResponse,
   type OpenAITtsVoice,
   type SynthesizeSpeechRequest,
   type SynthesizeSpeechResponse,
@@ -279,52 +280,40 @@ export class ChatService implements IChatService {
     };
   }
 
-  async createRealtimeCall(
-    request: CreateRealtimeCallRequest,
-  ): Promise<CreateRealtimeCallResponse> {
-    const response = await this.fetchWithAuth("/realtime/calls", {
-      method: "POST",
-      headers: {
-        Accept: "application/sdp",
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        sdp: request.sdp,
-        ...(request.conversationId
-          ? { conversationId: request.conversationId }
-          : {}),
-        ...(request.activationSource
-          ? { activationSource: request.activationSource }
-          : {}),
-        ...(request.safetyIdentifier
-          ? { safetyIdentifier: request.safetyIdentifier }
-          : {}),
-      }),
+  private async liveRequest(path: string, body: unknown, signal?: AbortSignal) {
+    const response = await this.fetchWithAuth(path, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body), signal,
     });
-
+    const result = await response.json();
     if (!response.ok) {
-      const errorText = await response.text().catch(() => "");
-      throw createChatApiError({
-        body: parseChatApiErrorBody(errorText),
-        status: response.status,
-        statusText: response.statusText,
+      throw Object.assign(new Error(result.message || "Voice connection failed. Please retry."), {
+        retryable: result.retryable === true,
       });
     }
+    return result;
+  }
 
-    const sdp = await response.text();
-    if (!sdp.trim()) {
-      throw new Error("Realtime session returned empty SDP");
-    }
+  async createLiveSession(request: CreateLiveSessionRequest): Promise<CreateLiveSessionResponse> {
+    const { signal, ...body } = request;
+    return this.liveRequest("/live/sessions", body, signal);
+  }
 
-    const voiceHeader = response.headers.get("x-openai-realtime-voice");
-    const voice: OpenAITtsVoice = voiceHeader === "cedar" ? "cedar" : "marin";
+  async closeLiveSession(session: CreateLiveSessionResponse, finalized = false): Promise<void> {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 10000);
+    try {
+      await this.liveRequest(`/live/sessions/${encodeURIComponent(session.sessionId)}/close`, {
+        controlToken: session.controlToken, finalized,
+      }, controller.signal);
+    } finally { clearTimeout(timer); }
+  }
 
-    return {
-      sdp,
-      model: response.headers.get("x-openai-realtime-model") || "",
-      voice,
-      contentType: response.headers.get("content-type") || "application/sdp",
-    };
+  async delegateLiveTask(session: CreateLiveSessionResponse, delegationId: string,
+    history: LiveHistoryMessage[], signal?: AbortSignal): Promise<{ content: string }> {
+    return this.liveRequest(`/live/sessions/${encodeURIComponent(session.sessionId)}/delegate`, {
+      controlToken: session.controlToken, delegationId, history,
+    }, signal);
   }
 }
 

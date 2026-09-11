@@ -237,6 +237,15 @@ export function useChat() {
     [],
   );
 
+  const updateVoiceCaption = useCallback((caption: { id: string; content: string; role: "user" | "assistant" }) => {
+    setState(previous => {
+      const existing = previous.messages.find(message => message.id === caption.id);
+      return { ...previous, messages: existing
+        ? previous.messages.map(message => message.id === caption.id ? { ...message, content: caption.content } : message)
+        : [...previous.messages, { ...caption, timestamp: new Date(), status: "sent" as const }] };
+    });
+  }, []);
+
   const clearMessages = useCallback(() => {
     for (const timer of pollingTimers.current.values()) {
       clearTimeout(timer);
@@ -249,6 +258,7 @@ export function useChat() {
     ...state,
     sendMessage,
     addLocalMessage,
+    updateVoiceCaption,
     clearMessages,
   };
 }

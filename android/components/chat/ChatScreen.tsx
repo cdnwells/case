@@ -25,7 +25,7 @@ export function ChatScreen({
   approvedVoiceProfileRuntimeStatus = 'ready',
   approvedVoiceCount = 0,
 }: ChatScreenProps) {
-  const { messages, isLoading, error, sendMessage, addLocalMessage } = useChat();
+  const { messages, isLoading, error, sendMessage, updateVoiceCaption } = useChat();
   const savedAudioRecords = useApprovedAudioRecordViews();
   const handleDeleteSavedAudioRecord = useCallback((clipId: string) => {
     deleteApprovedAudioRecord(clipId);
@@ -67,7 +67,8 @@ export function ChatScreen({
             onSend={sendMessage}
             disabled={isLoading}
             lastAssistantMessage={lastAssistantMessage}
-            onLocalMessage={addLocalMessage}
+            voiceHistory={messages}
+            onVoiceCaption={updateVoiceCaption}
             approvedVoiceProfileRuntimeStatus={
               approvedVoiceProfileRuntimeStatus
             }

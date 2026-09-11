@@ -2,6 +2,7 @@ import { requireOptionalNativeModule } from "expo";
 import { Platform } from "react-native";
 
 type NativeRealtimeAudioSessionModule = {
+  addListener?: (event: "audioError", callback: (event: { message: string }) => void) => { remove(): void };
   start: (speakerphone: boolean) => boolean;
   stop: () => boolean;
 };
@@ -44,4 +45,8 @@ export function stopRealtimeAudioSession(): boolean {
   } catch {
     return false;
   }
+}
+
+export function subscribeRealtimeAudioErrors(callback: (message: string) => void) {
+  return getNativeRealtimeAudioSessionModule()?.addListener?.("audioError", event => callback(event.message));
 }
