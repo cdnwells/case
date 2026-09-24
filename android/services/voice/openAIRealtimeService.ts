@@ -2,6 +2,7 @@ import type {
   CreateLiveSessionRequest,
   CreateLiveSessionResponse,
 } from "../api/types";
+import type { Message, SendMessageRequest, SendMessageResponse } from "../../types/chat";
 import {
   OPENAI_REALTIME_BASE_URL,
   OPENAI_REALTIME_TOKEN,
@@ -20,6 +21,49 @@ export class OpenAIRealtimeService {
     private readonly token = OPENAI_REALTIME_TOKEN,
   ) {}
 
+  private headers(): Record<string, string> {
+    return {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+      ...(this.token ? { Authorization: `Bearer ${this.token}` } : {}),
+    };
+  }
+
+  async sendMessage(
+    request: SendMessageRequest,
+    history: Pick<Message, "role" | "content">[] = [],
+  ): Promise<SendMessageResponse> {
+    if (request.attachments?.length) {
+      throw new Error("Attachments are not available in direct AI chat yet.");
+    }
+    const response = await fetch(`${this.baseUrl}/chat`, {
+      method: "POST",
+      headers: this.headers(),
+      body: JSON.stringify({
+        content: request.content,
+        history: history
+          .filter(item => item.content.trim())
+          .slice(-40)
+          .map(item => ({ role: item.role, content: item.content })),
+      }),
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw Object.assign(new Error(result?.message || "AI response failed. Please retry."), {
+        retryable: result?.retryable === true,
+      });
+    }
+    if (!result?.message || result.message.role !== "assistant" || typeof result.message.content !== "string") {
+      throw new Error("The AI service returned an invalid response.");
+    }
+    return {
+      message: {
+        ...result.message,
+        timestamp: new Date(result.message.timestamp || Date.now()),
+      },
+    };
+  }
+
   async createSession(
     request: CreateLiveSessionRequest,
   ): Promise<CreateLiveSessionResponse> {
@@ -27,9 +71,7 @@ export class OpenAIRealtimeService {
     const response = await fetch(`${this.baseUrl}/session`, {
       method: "POST",
       headers: {
-        Accept: "application/json",
-        "Content-Type": "application/json",
-        ...(this.token ? { Authorization: `Bearer ${this.token}` } : {}),
+        ...this.headers(),
       },
       body: JSON.stringify(body),
       signal,

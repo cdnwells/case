@@ -1,4 +1,25 @@
 const { withAndroidManifest } = require("@expo/config-plugins");
+const fs = require("node:fs");
+const path = require("node:path");
+
+function loadRootRealtimeEnvironment() {
+  const rootEnvironmentPath = path.resolve(__dirname, "../.env");
+  if (!fs.existsSync(rootEnvironmentPath)) return;
+  for (const line of fs.readFileSync(rootEnvironmentPath, "utf8").split(/\r?\n/)) {
+    const match = line.match(/^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)\s*$/);
+    if (!match) continue;
+    let value = match[2];
+    if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
+      value = value.slice(1, -1);
+    }
+    if (process.env[match[1]] === undefined) process.env[match[1]] = value;
+  }
+  if (!process.env.EXPO_PUBLIC_CASE_REALTIME_TOKEN && process.env.CASE_REALTIME_TOKEN) {
+    process.env.EXPO_PUBLIC_CASE_REALTIME_TOKEN = process.env.CASE_REALTIME_TOKEN;
+  }
+}
+
+loadRootRealtimeEnvironment();
 
 const PRODUCTION_APP_NAME = "케이스";
 const PHONE_MAX_SHORTEST_SIDE_DP = 599;

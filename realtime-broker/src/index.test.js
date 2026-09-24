@@ -3,7 +3,7 @@ import test from "node:test"
 import { handleRequest } from "./index.js"
 
 const env = { OPENAI_API_KEY: "openai-key", CASE_REALTIME_TOKEN: "app-token" }
-const request = (body, token = "app-token") => new Request("https://broker.test/session", {
+const request = (body, token = "app-token", path = "/session") => new Request(`https://broker.test${path}`, {
   method: "POST",
   headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
   body: JSON.stringify(body),
@@ -42,4 +42,34 @@ test("does not reflect an upstream error body", async () => {
     async () => new Response("secret upstream details", { status: 401 }))
   assert.equal(response.status, 502)
   assert.equal((await response.text()).includes("secret upstream details"), false)
+})
+
+test("creates a stateless Responses API chat reply", async () => {
+  let captured
+  const response = await handleRequest(request({
+    content: "What did I just say?",
+    history: [{ role: "user", content: "My name is Sanghyuk." }],
+  }, "app-token", "/chat"), env, async (url, options) => {
+    captured = { url, options }
+    return new Response(JSON.stringify({
+      id: "resp_123",
+      output: [{ type: "message", role: "assistant", content: [
+        { type: "output_text", text: "Your name is Sanghyuk." },
+      ] }],
+    }), { status: 200, headers: { "Content-Type": "application/json" } })
+  })
+  assert.equal(response.status, 200)
+  assert.equal(captured.url, "https://api.openai.com/v1/responses")
+  const upstream = JSON.parse(captured.options.body)
+  assert.equal(upstream.store, false)
+  assert.deepEqual(upstream.input.at(-1), { role: "user", content: "What did I just say?" })
+  assert.equal((await response.json()).message.content, "Your name is Sanghyuk.")
+})
+
+test("chat rejects empty prompts and never reflects upstream errors", async () => {
+  assert.equal((await handleRequest(request({ content: "" }, "app-token", "/chat"), env)).status, 400)
+  const response = await handleRequest(request({ content: "Hello" }, "app-token", "/chat"), env,
+    async () => new Response("sensitive upstream body", { status: 403 }))
+  assert.equal(response.status, 502)
+  assert.equal((await response.text()).includes("sensitive upstream body"), false)
 })

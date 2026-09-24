@@ -3,6 +3,7 @@ import type { Message, ChatState, SendMessageRequest } from "@/types/chat";
 import { chatService } from "@/services/api";
 import { getSendMessageErrorMessage } from "@/services/api/chatErrors";
 import { createMessageAttachmentBadges } from "@/components/chat/messageAttachmentBadges";
+import { openAIRealtimeService } from "@/services/voice/openAIRealtimeService";
 
 const POLL_INTERVAL_MS = 3000;
 const POLL_MAX_ATTEMPTS = 60;
@@ -177,7 +178,7 @@ export function useChat() {
       }));
 
       try {
-        const response = await chatService.sendMessage({
+        const response = await openAIRealtimeService.sendMessage({
           content: userMessage.content,
           ...(options.conversationId
             ? { conversationId: options.conversationId }
@@ -185,7 +186,7 @@ export function useChat() {
           ...(options.attachments?.length
             ? { attachments: options.attachments }
             : {}),
-        });
+        }, state.messages.map(({ role, content }) => ({ role, content })));
         const assistantMessage = response.message;
 
         setState((prev) => ({
@@ -217,7 +218,7 @@ export function useChat() {
         }));
       }
     },
-    [startPolling],
+    [startPolling, state.messages],
   );
 
   const addLocalMessage = useCallback(
