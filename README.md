@@ -182,6 +182,7 @@ Hub API routes no longer require a Case Hub token. `APP_ENV` still controls app/
 | `CHAT_PROVIDER` | `codex` | Skips provider prompt. One of `codex`, `claude`, `gpt`, `ollama`. |
 | `APP_ENV` | `production` in `hub.js`, `development` in `run_servers.sh` | Runtime environment label. |
 | `CODEX_PATH` | `codex` | Codex CLI executable. |
+| `CODEX_HOME` | Codex CLI default | Codex configuration/auth directory. Set this explicitly when the Hub runs in a container under a different OS user. |
 | `CODEX_MODEL` | empty | Optional Codex model argument. |
 | `CODEX_PROFILE` | empty | Optional Codex profile argument. |
 | `CODEX_VALIDATION_TIMEOUT` | `30` | Codex startup validation timeout in seconds. |
@@ -210,6 +211,20 @@ Hub API routes no longer require a Case Hub token. `APP_ENV` still controls app/
 | `GENERATED_FILE_MAX_COUNT` | `5` | Maximum generated files per provider response. |
 | `CONTEXT_WORKER_URL` | empty | Optional legacy context worker URL. If set, Hub validates `/health` at startup and can load context through it. |
 | `LOG_LEVEL` | `info` | Fastify log level. |
+
+When the Hub runs in a container, both the CLI executable and its authenticated
+configuration directory must be visible inside that container. For example:
+
+```bash
+CODEX_PATH=/mounted/path/to/codex \
+CODEX_HOME=/mounted/path/to/.codex \
+CHAT_PROVIDER=codex ./run_servers.sh
+```
+
+Do not copy `auth.json` into the repository or commit credentials. The startup
+smoke check uses the same no-approval, no-sandbox execution mode as normal Codex
+chat requests so container startup does not require `bubblewrap` merely for the
+validation step.
 
 ## Memory And Commands
 

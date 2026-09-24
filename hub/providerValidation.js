@@ -103,8 +103,9 @@ function buildCodexExecStartupArgs({ codexModel = '', codexProfile = '' } = {}) 
   const args = [
     'exec',
     '--ephemeral',
+    '--dangerously-bypass-approvals-and-sandbox',
     '--sandbox',
-    'read-only',
+    'danger-full-access',
     '--skip-git-repo-check',
     '--color',
     'never',

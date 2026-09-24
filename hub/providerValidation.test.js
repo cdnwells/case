@@ -1,4 +1,7 @@
 import assert from 'node:assert/strict'
+import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import path from 'node:path'
 import test from 'node:test'
 
 import { config, start, validateContextWorkerReachability, validateContextWorkerUrl } from './hub.js'
@@ -385,11 +388,30 @@ test('codex startup validation fails when CODEX_PATH is not executable', async (
 })
 
 test('codex startup validation passes when CODEX_PATH is a usable Codex CLI', async () => {
-  await validateSelectedChatProvider({
-    ...baseConfig,
-    chatProvider: 'codex',
-    codexPath: fakeCodexPath,
-  }, logger)
+  const tempDir = await mkdtemp(path.join(tmpdir(), 'case-codex-validation-'))
+  const argsPath = path.join(tempDir, 'args.json')
+
+  try {
+    process.env.FAKE_CODEX_CAPTURE_ARGS_PATH = argsPath
+    await validateSelectedChatProvider({
+      ...baseConfig,
+      chatProvider: 'codex',
+      codexPath: fakeCodexPath,
+    }, logger)
+
+    const args = JSON.parse(await readFile(argsPath, 'utf8'))
+    assert.deepEqual(args.slice(0, 6), [
+      'exec',
+      '--ephemeral',
+      '--dangerously-bypass-approvals-and-sandbox',
+      '--sandbox',
+      'danger-full-access',
+      '--skip-git-repo-check',
+    ])
+  } finally {
+    delete process.env.FAKE_CODEX_CAPTURE_ARGS_PATH
+    await rm(tempDir, { recursive: true, force: true })
+  }
 })
 
 test('codex startup validation passes configured timeout to Codex CLI checks', async () => {
