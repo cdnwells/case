@@ -3,6 +3,7 @@ import { AppState } from 'react-native';
 import { chatService } from '@/services/api';
 import { createLiveTransport } from '@/services/voice/liveTransport';
 import { LiveConversation, type LiveCaption, type LiveState } from '@/services/voice/liveConversation';
+import { openAIRealtimeService } from '@/services/voice/openAIRealtimeService';
 import type { CreateLiveSessionRequest } from '@/services/api/types';
 
 export function useOpenAILiveConversation({ onCaption }: { onCaption?: (caption: LiveCaption) => void } = {}) {
@@ -14,11 +15,8 @@ export function useOpenAILiveConversation({ onCaption }: { onCaption?: (caption:
   const instance = useRef<LiveConversation | null>(null);
   if (!instance.current) instance.current = new LiveConversation({
     createTransport: createLiveTransport,
-    createSession: request => {
-      if (!chatService.createLiveSession) throw Object.assign(new Error('Live voice is unavailable in this build.'), { retryable: false });
-      return chatService.createLiveSession(request);
-    },
-    closeSession: (session, finalized) => chatService.closeLiveSession?.(session, finalized) || Promise.resolve(),
+    createSession: request => openAIRealtimeService.createSession(request),
+    closeSession: () => openAIRealtimeService.closeSession(),
     delegate: (session, id, history, signal) => chatService.delegateLiveTask?.(session, id, history, signal)
       || Promise.resolve({ content: 'Please continue this task in text chat.' }),
     onState: (next, message) => { if (mounted.current) { setState(next); setError(message); } },

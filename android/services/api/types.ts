@@ -42,7 +42,7 @@ export interface CreateLiveSessionRequest {
 
 export interface CreateLiveSessionResponse {
   sessionId: string;
-  controlToken: string;
+  controlToken?: string;
   sdp: string;
   model: string;
   voice: OpenAITtsVoice;
@@ -87,6 +87,14 @@ function getExpoExtraValue(key: string): unknown {
 
 export const API_BASE_URL = normalizeApiBaseUrl(
   process.env.EXPO_PUBLIC_CASE_HUB_URL || DEFAULT_API_BASE_URL,
+);
+
+export const OPENAI_REALTIME_BASE_URL = normalizeApiBaseUrl(
+  process.env.EXPO_PUBLIC_CASE_REALTIME_URL || API_BASE_URL,
+);
+
+export const OPENAI_REALTIME_TOKEN = normalizeCaseHubToken(
+  process.env.EXPO_PUBLIC_CASE_REALTIME_TOKEN,
 );
 
 export const CASE_HUB_BOOTSTRAP_TOKEN = normalizeCaseHubToken(
